@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.TelegramFireTV" parent="Theme.Leanback" />
+</resources>

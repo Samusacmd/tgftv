@@ -1,0 +1,89 @@
+package com.telegramfiretv.tdlib
+
+import android.content.Context
+import com.telegramfiretv.BuildConfig
+import org.drinkless.tdlib.Client
+import org.drinkless.tdlib.TdApi
+
+/**
+ * Wrapper singleton attorno a TDLib.
+ * Gestisce: caricamento libreria nativa, parametri, flusso di login e lista chat.
+ */
+object TdClient {
+
+    private var client: Client? = null
+    private lateinit var dbDir: String
+
+    @Volatile
+    var authState: TdApi.AuthorizationState? = null
+        private set
+
+    /** Callback invocate sull'UI thread tramite Handler/runOnUiThread dai chiamanti. */
+    var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
+    var onChatsChanged: (() -> Unit)? = null
+
+    /** Lista delle chat raccolte dagli update UpdateNewChat. */
+    val chats: MutableList<TdApi.Chat> = mutableListOf()
+
+    fun init(context: Context) {
+        if (client != null) return
+        dbDir = context.filesDir.absolutePath + "/tdlib"
+        Client.setLogMessageHandler(0) { _, _ -> }
+        client = Client.create({ obj -> onResult(obj) }, null, null)
+    }
+
+    private fun onResult(obj: TdApi.Object) {
+        when (obj.constructor) {
+            TdApi.UpdateAuthorizationState.CONSTRUCTOR ->
+                handleAuthState((obj as TdApi.UpdateAuthorizationState).authorizationState)
+
+            TdApi.UpdateNewChat.CONSTRUCTOR -> {
+                val chat = (obj as TdApi.UpdateNewChat).chat
+                synchronized(chats) {
+                    if (chats.none { it.id == chat.id }) chats.add(chat)
+                }
+                onChatsChanged?.invoke()
+            }
+        }
+    }
+
+    private fun handleAuthState(state: TdApi.AuthorizationState) {
+        authState = state
+        if (state.constructor == TdApi.AuthorizationStateWaitTdlibParameters.CONSTRUCTOR) {
+            val params = TdApi.SetTdlibParameters()
+            params.databaseDirectory = dbDir
+            params.useMessageDatabase = true
+            params.useSecretChats = false
+            params.apiId = BuildConfig.API_ID
+            params.apiHash = BuildConfig.API_HASH
+            params.systemLanguageCode = "it"
+            params.deviceModel = "Fire TV"
+            params.applicationVersion = "1.0"
+            params.databaseEncryptionKey = ByteArray(0)
+            client?.send(params) {}
+        }
+        onAuthStateChanged?.invoke(state)
+    }
+
+    fun sendPhone(phone: String) {
+        client?.send(TdApi.SetAuthenticationPhoneNumber(phone, null)) {}
+    }
+
+    fun sendCode(code: String) {
+        client?.send(TdApi.CheckAuthenticationCode(code)) {}
+    }
+
+    fun sendPassword(password: String) {
+        client?.send(TdApi.CheckAuthenticationPassword(password)) {}
+    }
+
+    /** Chiede a TDLib di caricare la lista chat principale. */
+    fun loadChats(limit: Int = 50) {
+        client?.send(TdApi.LoadChats(TdApi.ChatListMain(), limit)) {}
+    }
+
+    /** Espone send grezzo per query future (download file, getMessages, ecc.). */
+    fun send(query: TdApi.Function<*>, handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(query) { handler(it) }
+    }
+}
