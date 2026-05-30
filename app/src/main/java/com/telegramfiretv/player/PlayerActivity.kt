@@ -1,9 +1,9 @@
 package com.telegramfiretv.player
 
+import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
-import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -32,6 +32,10 @@ class PlayerActivity : FragmentActivity() {
     private var targetFileId: Int = -1
     private var started = false
 
+    private val fileListener: (TdApi.File) -> Unit = { file ->
+        if (file.id == targetFileId) runOnUiThread { onFileProgress(file) }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPlayerBinding.inflate(layoutInflater)
@@ -58,7 +62,13 @@ class PlayerActivity : FragmentActivity() {
         super.onStart()
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
-        binding.playerView.useController = Settings.playerDim(this)
+        binding.playerView.useController = true
+        // Oscuramento disattivato: comandi visibili ma senza velo scuro.
+        if (!Settings.playerDim(this)) {
+            binding.playerView
+                .findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)
+                ?.setBackgroundColor(Color.TRANSPARENT)
+        }
         player = exo
 
         exo.addListener(object : Player.Listener {
@@ -75,27 +85,11 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        TdClient.onFileUpdated = { file ->
-            if (file.id == targetFileId) runOnUiThread { onFileProgress(file) }
-        }
+        TdClient.addFileListener(fileListener)
         setStatus("Preparo: " + (intent.getStringExtra(EXTRA_LABEL) ?: ""))
         TdClient.downloadFile(targetFileId) { obj ->
             if (obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
-    }
-
-    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-        if (!Settings.playerDim(this)) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_DPAD_CENTER,
-                KeyEvent.KEYCODE_ENTER,
-                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
-                    player?.let { it.playWhenReady = !it.playWhenReady }
-                    return true
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
     }
 
     private fun onFileProgress(file: TdApi.File) {
@@ -127,7 +121,10 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        TdClient.onFileUpdated = null
+        TdClient.removeFileListener(fileListener)
+        if (!started && targetFileId >= 0) {
+            TdClient.cancelDownload(targetFileId)
+        }
         player?.release()
         player = null
     }
