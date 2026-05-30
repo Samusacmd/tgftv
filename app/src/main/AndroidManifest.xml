@@ -42,5 +42,9 @@
         <activity
             android:name=".ui.MediaListActivity"
             android:exported="false" />
+        
+        <activity
+            android:name=".ui.SettingsActivity"
+            android:exported="false" />
     </application>
 </manifest>
