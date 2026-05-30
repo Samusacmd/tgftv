@@ -1,10 +1,10 @@
 package com.telegramfiretv.ui
 
-import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.view.ViewGroup
 import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
+import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
 
 class CardPresenter : Presenter() {
@@ -24,11 +24,16 @@ class CardPresenter : Presenter() {
         card.titleText = chat.title
         card.contentText = chatTypeLabel(chat)
 
-        val mini = chat.photo?.minithumbnail
-        card.mainImage = if (mini != null) {
-            val bmp = BitmapFactory.decodeByteArray(mini.data, 0, mini.data.size)
-            if (bmp != null) BitmapDrawable(card.resources, bmp) else null
-        } else null
+        val photo = chat.photo
+        val small = photo?.small
+        val crisp = if (small != null && small.local.isDownloadingCompleted && small.local.path.isNotEmpty())
+            decodeImageFile(small.local.path) else null
+        val bmp = crisp ?: decodeImageBytes(photo?.minithumbnail?.data)
+        card.mainImage = if (bmp != null) BitmapDrawable(card.resources, bmp) else null
+
+        if (crisp == null && small != null && small.local.canBeDownloaded && !small.local.isDownloadingCompleted) {
+            TdClient.downloadFile(small.id)
+        }
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
