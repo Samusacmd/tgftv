@@ -7,7 +7,6 @@ import androidx.leanback.widget.ArrayObjectAdapter
 import androidx.leanback.widget.HeaderItem
 import androidx.leanback.widget.ListRow
 import androidx.leanback.widget.ListRowPresenter
-import com.telegramfiretv.player.PlayerActivity
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
 
@@ -21,8 +20,7 @@ class MainFragment : BrowseSupportFragment() {
         title = "Telegram Fire TV"
         headersState = HEADERS_DISABLED
 
-        val header = HeaderItem(0, "Le tue chat")
-        rowsAdapter.add(ListRow(header, chatsAdapter))
+        rowsAdapter.add(ListRow(HeaderItem(0, "Le tue chat"), chatsAdapter))
         adapter = rowsAdapter
 
         setOnItemViewClickedListener { _, item, _, _ ->
@@ -35,7 +33,7 @@ class MainFragment : BrowseSupportFragment() {
         }
 
         TdClient.onChatsChanged = { activity?.runOnUiThread { refreshChats() } }
-        TdClient.loadChats()
+        TdClient.loadChats(200)
     }
 
     private fun refreshChats() {
