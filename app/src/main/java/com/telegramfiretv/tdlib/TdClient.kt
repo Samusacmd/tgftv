@@ -24,12 +24,18 @@ object TdClient {
     fun removeFileListener(l: (TdApi.File) -> Unit) { fileListeners.remove(l) }
 
     val chats: MutableList<TdApi.Chat> = mutableListOf()
+    private val chatOrder = HashMap<Long, Long>()
 
     fun init(context: Context) {
         if (client != null) return
         dbDir = context.filesDir.absolutePath + "/tdlib"
         Client.setLogMessageHandler(0) { _, _ -> }
         client = Client.create({ obj -> onResult(obj) }, null, null)
+    }
+
+    private fun mainOrder(positions: Array<TdApi.ChatPosition>): Long {
+        for (p in positions) if (p.list.constructor == TdApi.ChatListMain.CONSTRUCTOR) return p.order
+        return 0L
     }
 
     private fun onResult(obj: TdApi.Object) {
@@ -41,8 +47,17 @@ object TdClient {
                 val chat = (obj as TdApi.UpdateNewChat).chat
                 synchronized(chats) {
                     if (chats.none { it.id == chat.id }) chats.add(chat)
+                    chatOrder[chat.id] = mainOrder(chat.positions)
                 }
                 onChatsChanged?.invoke()
+            }
+
+            TdApi.UpdateChatPosition.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatPosition
+                if (u.position.list.constructor == TdApi.ChatListMain.CONSTRUCTOR) {
+                    synchronized(chats) { chatOrder[u.chatId] = u.position.order }
+                    onChatsChanged?.invoke()
+                }
             }
 
             TdApi.UpdateFile.CONSTRUCTOR -> {
@@ -85,6 +100,13 @@ object TdClient {
 
     fun loadChats(limit: Int = 50) {
         client?.send(TdApi.LoadChats(TdApi.ChatListMain(), limit)) {}
+    }
+
+    /** Chat ordinate come nella lista principale di Telegram (più in alto = ordine maggiore). */
+    fun orderedChats(): List<TdApi.Chat> {
+        synchronized(chats) {
+            return chats.sortedByDescending { chatOrder[it.id] ?: 0L }
+        }
     }
 
     fun openChat(chatId: Long) {
