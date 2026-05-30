@@ -28,9 +28,9 @@ class MainFragment : BrowseSupportFragment() {
         setOnItemViewClickedListener { _, item, _, _ ->
             val chat = item as TdApi.Chat
             startActivity(
-                Intent(requireContext(), PlayerActivity::class.java)
-                    .putExtra(PlayerActivity.EXTRA_CHAT_ID, chat.id)
-                    .putExtra(PlayerActivity.EXTRA_CHAT_TITLE, chat.title)
+                Intent(requireContext(), MediaListActivity::class.java)
+                    .putExtra("chatId", chat.id)
+                    .putExtra("title", chat.title)
             )
         }
 
