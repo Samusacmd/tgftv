@@ -5,10 +5,6 @@ import com.telegramfiretv.BuildConfig
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
 
-/**
- * Wrapper singleton attorno a TDLib.
- * Gestisce: caricamento libreria nativa, parametri, flusso di login e lista chat.
- */
 object TdClient {
 
     private var client: Client? = null
@@ -18,11 +14,10 @@ object TdClient {
     var authState: TdApi.AuthorizationState? = null
         private set
 
-    /** Callback invocate sull'UI thread tramite Handler/runOnUiThread dai chiamanti. */
     var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
     var onChatsChanged: (() -> Unit)? = null
+    var onFileUpdated: ((TdApi.File) -> Unit)? = null
 
-    /** Lista delle chat raccolte dagli update UpdateNewChat. */
     val chats: MutableList<TdApi.Chat> = mutableListOf()
 
     fun init(context: Context) {
@@ -44,6 +39,9 @@ object TdClient {
                 }
                 onChatsChanged?.invoke()
             }
+
+            TdApi.UpdateFile.CONSTRUCTOR ->
+                onFileUpdated?.invoke((obj as TdApi.UpdateFile).file)
         }
     }
 
@@ -77,13 +75,19 @@ object TdClient {
         client?.send(TdApi.CheckAuthenticationPassword(password)) {}
     }
 
-    /** Chiede a TDLib di caricare la lista chat principale. */
     fun loadChats(limit: Int = 50) {
         client?.send(TdApi.LoadChats(TdApi.ChatListMain(), limit)) {}
     }
 
-    /** Espone send grezzo per query future (download file, getMessages, ecc.). */
-    fun send(query: TdApi.Function<*>, handler: (TdApi.Object) -> Unit = {}) {
-        client?.send(query) { handler(it) }
+    fun openChat(chatId: Long) {
+        client?.send(TdApi.OpenChat(chatId)) {}
+    }
+
+    fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)) { handler(it) }
+    }
+
+    fun downloadFile(fileId: Int, handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
     }
 }
