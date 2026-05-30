@@ -1,8 +1,11 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.fragment.app.FragmentActivity
 import androidx.leanback.app.BrowseSupportFragment
@@ -15,7 +18,8 @@ data class MediaEntry(
     val fileId: Int,
     val title: String,
     val type: String,
-    val durationSec: Int
+    val durationSec: Int,
+    val mini: ByteArray?
 )
 
 internal fun formatDuration(sec: Int): String {
@@ -109,20 +113,20 @@ class MediaListFragment : BrowseSupportFragment() {
     private fun extractMedia(msg: TdApi.Message): MediaEntry? {
         return when (val c = msg.content) {
             is TdApi.MessageVideo ->
-                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration)
+                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration, c.video.minithumbnail?.data)
             is TdApi.MessageAudio -> {
                 val name = listOf(c.audio.performer, c.audio.title).filter { it.isNotBlank() }
                     .joinToString(" - ").ifEmpty { c.audio.fileName.ifEmpty { "Audio" } }
-                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration)
+                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration, c.audio.albumCoverMinithumbnail?.data)
             }
-            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration)
-            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration)
-            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration)
+            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration, null)
+            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data)
+            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data)
             is TdApi.MessageDocument -> {
                 val mime = c.document.mimeType
                 when {
-                    mime.startsWith("video/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Video" }, "Video", 0)
-                    mime.startsWith("audio/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Audio" }, "Audio", 0)
+                    mime.startsWith("video/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Video" }, "Video", 0, c.document.minithumbnail?.data)
+                    mime.startsWith("audio/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Audio" }, "Audio", 0, c.document.minithumbnail?.data)
                     else -> null
                 }
             }
@@ -132,7 +136,7 @@ class MediaListFragment : BrowseSupportFragment() {
 }
 
 class MediaPresenter : Presenter() {
-    override fun onCreateViewHolder(parent: android.view.ViewGroup): ViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val card = ImageCardView(parent.context).apply {
             isFocusable = true
             isFocusableInTouchMode = true
@@ -147,11 +151,18 @@ class MediaPresenter : Presenter() {
         card.titleText = e.title
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
+
+        val data = e.mini
+        card.mainImage = if (data != null) {
+            val bmp = BitmapFactory.decodeByteArray(data, 0, data.size)
+            if (bmp != null) BitmapDrawable(card.resources, bmp) else null
+        } else null
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         val card = viewHolder.view as ImageCardView
         card.titleText = null
         card.contentText = null
+        card.mainImage = null
     }
 }
