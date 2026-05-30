@@ -39,28 +39,31 @@ jobs:
           cd td/example/android
           docker build --output "$GITHUB_WORKSPACE/tdlib-out" .
 
-      - name: Diagnostica layout output TDLib
-        run: |
-          echo "===== Contenuto di tdlib-out ====="
-          find tdlib-out -maxdepth 6 | sort
-
-      - name: Inserisci .so e sorgenti Java nel progetto
+      - name: Estrai TDLib e integra nel progetto
         run: |
           set -e
-          find tdlib-out -name '*.so' | while read -r so; do
+          mkdir -p tdlib-extracted
+          unzip -o tdlib-out/tdlib.zip -d tdlib-extracted
+          echo "===== Struttura estratta ====="
+          find tdlib-extracted -maxdepth 6 | sort
+
+          # Copia le librerie native (.so) preservando la cartella ABI di origine.
+          find tdlib-extracted -name '*.so' | while read -r so; do
             abi="$(basename "$(dirname "$so")")"
             mkdir -p "app/src/main/jniLibs/$abi"
             cp "$so" "app/src/main/jniLibs/$abi/"
             echo "Copiato $so -> jniLibs/$abi/"
           done
-          javadir="$(find tdlib-out -type d -path '*org/drinkless/tdlib' | head -n1)"
+
+          # Copia i sorgenti Java generati (org/drinkless/tdlib).
+          javadir="$(find tdlib-extracted -type d -path '*org/drinkless/tdlib' | head -n1)"
           if [ -z "$javadir" ]; then
-            echo "ERRORE: sorgenti TDLib (org/drinkless/tdlib) non trovati"; exit 1
+            echo "ERRORE: sorgenti TDLib (org/drinkless/tdlib) non trovati nello zip"; exit 1
           fi
           mkdir -p app/src/main/java/org/drinkless
           cp -r "$javadir" app/src/main/java/org/drinkless/
           echo "Sorgenti Java copiati da $javadir"
-          echo "===== jniLibs ====="; find app/src/main/jniLibs | sort
+          echo "===== jniLibs finali ====="; find app/src/main/jniLibs | sort
 
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
