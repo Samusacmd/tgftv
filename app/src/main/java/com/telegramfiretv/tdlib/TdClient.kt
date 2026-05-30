@@ -4,6 +4,7 @@ import android.content.Context
 import com.telegramfiretv.BuildConfig
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
+import java.util.concurrent.CopyOnWriteArrayList
 
 object TdClient {
 
@@ -17,6 +18,10 @@ object TdClient {
     var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
     var onChatsChanged: (() -> Unit)? = null
     var onFileUpdated: ((TdApi.File) -> Unit)? = null
+
+    private val fileListeners = CopyOnWriteArrayList<(TdApi.File) -> Unit>()
+    fun addFileListener(l: (TdApi.File) -> Unit) { fileListeners.add(l) }
+    fun removeFileListener(l: (TdApi.File) -> Unit) { fileListeners.remove(l) }
 
     val chats: MutableList<TdApi.Chat> = mutableListOf()
 
@@ -40,8 +45,11 @@ object TdClient {
                 onChatsChanged?.invoke()
             }
 
-            TdApi.UpdateFile.CONSTRUCTOR ->
-                onFileUpdated?.invoke((obj as TdApi.UpdateFile).file)
+            TdApi.UpdateFile.CONSTRUCTOR -> {
+                val f = (obj as TdApi.UpdateFile).file
+                onFileUpdated?.invoke(f)
+                for (l in fileListeners) l(f)
+            }
         }
     }
 
