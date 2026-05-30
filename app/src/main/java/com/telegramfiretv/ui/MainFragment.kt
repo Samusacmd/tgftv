@@ -12,11 +12,13 @@ import org.drinkless.tdlib.TdApi
 
 class MainFragment : BrowseSupportFragment() {
 
+    private val thumbs = ThumbLoader()
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
-    private val chatsAdapter = ArrayObjectAdapter(CardPresenter())
+    private val chatsAdapter = ArrayObjectAdapter(CardPresenter(thumbs))
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        thumbs.start()
         title = "Telegram Fire TV"
         headersState = HEADERS_DISABLED
 
@@ -45,6 +47,7 @@ class MainFragment : BrowseSupportFragment() {
 
     override fun onDestroy() {
         super.onDestroy()
+        thumbs.stop()
         TdClient.onChatsChanged = null
     }
 }
