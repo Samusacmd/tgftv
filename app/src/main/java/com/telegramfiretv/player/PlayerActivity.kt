@@ -18,15 +18,13 @@ import java.io.File
 class PlayerActivity : FragmentActivity() {
 
     companion object {
-        const val EXTRA_CHAT_ID = "chat_id"
-        const val EXTRA_CHAT_TITLE = "chat_title"
+        const val EXTRA_FILE_ID = "file_id"
+        const val EXTRA_LABEL = "label"
     }
 
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
     private lateinit var status: TextView
-
-    private var chatId: Long = 0L
     private var targetFileId: Int = -1
     private var started = false
 
@@ -49,7 +47,7 @@ class PlayerActivity : FragmentActivity() {
             ).apply { gravity = Gravity.CENTER }
         )
 
-        chatId = intent.getLongExtra(EXTRA_CHAT_ID, 0L)
+        targetFileId = intent.getIntExtra(EXTRA_FILE_ID, -1)
     }
 
     override fun onStart() {
@@ -58,38 +56,16 @@ class PlayerActivity : FragmentActivity() {
         binding.playerView.player = exo
         player = exo
 
+        if (targetFileId < 0) {
+            setStatus("Nessun file da riprodurre.")
+            return
+        }
+
         TdClient.onFileUpdated = { file ->
             if (file.id == targetFileId) runOnUiThread { onFileProgress(file) }
         }
-
-        setStatus("Cerco un contenuto da riprodurre…")
-        TdClient.openChat(chatId)
-        resolveMedia(retry = 1)
-    }
-
-    private fun resolveMedia(retry: Int) {
-        TdClient.getChatHistory(chatId, 0, 50) { result ->
-            if (result is TdApi.Messages) {
-                val media = result.messages
-                    ?.filterNotNull()
-                    ?.firstNotNullOfOrNull { extractMedia(it) }
-                runOnUiThread {
-                    when {
-                        media != null -> startDownload(media.first, media.second)
-                        retry > 0 -> resolveMedia(retry - 1)
-                        else -> setStatus("Nessun video o audio trovato in questa chat.")
-                    }
-                }
-            } else {
-                runOnUiThread { setStatus("Impossibile leggere i messaggi della chat.") }
-            }
-        }
-    }
-
-    private fun startDownload(fileId: Int, label: String) {
-        targetFileId = fileId
-        setStatus("Preparo: $label")
-        TdClient.downloadFile(fileId) { obj ->
+        setStatus("Preparo: " + (intent.getStringExtra(EXTRA_LABEL) ?: ""))
+        TdClient.downloadFile(targetFileId) { obj ->
             if (obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
     }
@@ -119,25 +95,6 @@ class PlayerActivity : FragmentActivity() {
     private fun setStatus(text: String) {
         status.visibility = View.VISIBLE
         status.text = text
-    }
-
-    private fun extractMedia(msg: TdApi.Message): Pair<Int, String>? {
-        return when (val c = msg.content) {
-            is TdApi.MessageVideo -> c.video.video.id to c.video.fileName.ifEmpty { "Video" }
-            is TdApi.MessageAudio -> c.audio.audio.id to
-                listOf(c.audio.performer, c.audio.title).filter { it.isNotBlank() }
-                    .joinToString(" - ").ifEmpty { "Audio" }
-            is TdApi.MessageVoiceNote -> c.voiceNote.voice.id to "Messaggio vocale"
-            is TdApi.MessageVideoNote -> c.videoNote.video.id to "Video messaggio"
-            is TdApi.MessageAnimation -> c.animation.animation.id to c.animation.fileName.ifEmpty { "GIF" }
-            is TdApi.MessageDocument -> {
-                val mime = c.document.mimeType
-                if (mime.startsWith("video/") || mime.startsWith("audio/"))
-                    c.document.document.id to c.document.fileName.ifEmpty { "File" }
-                else null
-            }
-            else -> null
-        }
     }
 
     override fun onStop() {
