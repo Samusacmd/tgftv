@@ -9,6 +9,8 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.telegramfiretv.databinding.ActivityPlayerBinding
 import com.telegramfiretv.tdlib.TdClient
@@ -55,6 +57,15 @@ class PlayerActivity : FragmentActivity() {
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
         player = exo
+
+        exo.addListener(object : Player.Listener {
+            override fun onPlayerError(error: PlaybackException) {
+                runOnUiThread {
+                    status.visibility = View.VISIBLE
+                    status.text = "Errore riproduzione:\n${error.errorCodeName}\n${error.message ?: ""}"
+                }
+            }
+        })
 
         if (targetFileId < 0) {
             setStatus("Nessun file da riprodurre.")
