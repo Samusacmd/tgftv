@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -14,6 +16,8 @@ import androidx.leanback.widget.*
 import com.telegramfiretv.player.PlayerActivity
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
+import java.lang.ref.WeakReference
+import java.util.concurrent.ConcurrentHashMap
 
 data class MediaEntry(
     val fileId: Int,
@@ -35,6 +39,55 @@ internal fun decodeImageBytes(data: ByteArray?): Bitmap? =
 internal fun decodeImageFile(path: String?): Bitmap? =
     if (path.isNullOrEmpty()) null else BitmapFactory.decodeFile(path)
 
+/** Mostra subito la mini-anteprima, poi scarica e applica l'anteprima nitida appena pronta. */
+class ThumbLoader {
+    private val main = Handler(Looper.getMainLooper())
+    private val waiting = ConcurrentHashMap<Int, MutableList<WeakReference<ImageCardView>>>()
+    private val listener: (TdApi.File) -> Unit = { onFile(it) }
+
+    fun start() = TdClient.addFileListener(listener)
+    fun stop() {
+        TdClient.removeFileListener(listener)
+        waiting.clear()
+    }
+
+    fun load(card: ImageCardView, thumbFile: TdApi.File?, fallbackMini: ByteArray?) {
+        val mini = decodeImageBytes(fallbackMini)
+        if (thumbFile == null) {
+            card.tag = null
+            card.mainImage = mini?.let { BitmapDrawable(card.resources, it) }
+            return
+        }
+        val local = thumbFile.local
+        if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
+            val bmp = decodeImageFile(local.path) ?: mini
+            card.tag = null
+            card.mainImage = bmp?.let { BitmapDrawable(card.resources, it) }
+            return
+        }
+        card.tag = thumbFile.id
+        card.mainImage = mini?.let { BitmapDrawable(card.resources, it) }
+        waiting.getOrPut(thumbFile.id) { mutableListOf() }.add(WeakReference(card))
+        if (local.canBeDownloaded) {
+            TdClient.downloadFile(thumbFile.id) { obj -> if (obj is TdApi.File) onFile(obj) }
+        }
+    }
+
+    private fun onFile(file: TdApi.File) {
+        if (!file.local.isDownloadingCompleted || file.local.path.isEmpty()) return
+        val id = file.id
+        val path = file.local.path
+        main.post {
+            val list = waiting.remove(id) ?: return@post
+            val bmp = decodeImageFile(path) ?: return@post
+            for (ref in list) {
+                val card = ref.get() ?: continue
+                if (card.tag == id) card.mainImage = BitmapDrawable(card.resources, bmp)
+            }
+        }
+    }
+}
+
 class MediaListActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,8 +107,9 @@ class MediaListActivity : FragmentActivity() {
 
 class MediaListFragment : BrowseSupportFragment() {
 
+    private val thumbs = ThumbLoader()
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
-    private val itemsAdapter = ArrayObjectAdapter(MediaPresenter())
+    private val itemsAdapter = ArrayObjectAdapter(MediaPresenter(thumbs))
     private val collected = mutableListOf<MediaEntry>()
 
     private var chatId = 0L
@@ -65,6 +119,7 @@ class MediaListFragment : BrowseSupportFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        thumbs.start()
         chatId = arguments?.getLong("chatId") ?: 0L
         title = arguments?.getString("title") ?: "Contenuti"
         headersState = HEADERS_DISABLED
@@ -141,9 +196,14 @@ class MediaListFragment : BrowseSupportFragment() {
             else -> null
         }
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        thumbs.stop()
+    }
 }
 
-class MediaPresenter : Presenter() {
+class MediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val card = ImageCardView(parent.context).apply {
             isFocusable = true
@@ -159,16 +219,7 @@ class MediaPresenter : Presenter() {
         card.titleText = e.title
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
-
-        val thumb = e.thumbFile
-        val crisp = if (thumb != null && thumb.local.isDownloadingCompleted && thumb.local.path.isNotEmpty())
-            decodeImageFile(thumb.local.path) else null
-        val bmp = crisp ?: decodeImageBytes(e.mini)
-        card.mainImage = if (bmp != null) BitmapDrawable(card.resources, bmp) else null
-
-        if (crisp == null && thumb != null && thumb.local.canBeDownloaded && !thumb.local.isDownloadingCompleted) {
-            TdClient.downloadFile(thumb.id)
-        }
+        thumbs.load(card, e.thumbFile, e.mini)
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
@@ -176,5 +227,6 @@ class MediaPresenter : Presenter() {
         card.titleText = null
         card.contentText = null
         card.mainImage = null
+        card.tag = null
     }
 }
