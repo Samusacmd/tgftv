@@ -1,6 +1,5 @@
 package com.telegramfiretv.player
 
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
@@ -32,9 +31,8 @@ class PlayerActivity : FragmentActivity() {
     private var targetFileId: Int = -1
     private var started = false
 
-    private val fileListener: (TdApi.File) -> Unit = { file ->
-        if (file.id == targetFileId) runOnUiThread { onFileProgress(file) }
-    }
+    @Volatile
+    private var stopped = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,15 +58,12 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        stopped = false
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
         binding.playerView.useController = true
-        // Oscuramento disattivato: comandi visibili ma senza velo scuro.
-        if (!Settings.playerDim(this)) {
-            binding.playerView
-                .findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)
-                ?.setBackgroundColor(Color.TRANSPARENT)
-        }
+        // Oscuramento ON = i comandi compaiono/scuriscono da soli; OFF = solo su pressione tasto.
+        binding.playerView.controllerAutoShow = Settings.playerDim(this)
         player = exo
 
         exo.addListener(object : Player.Listener {
@@ -85,14 +80,17 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        TdClient.addFileListener(fileListener)
+        TdClient.onFileUpdated = { file ->
+            if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
+        }
         setStatus("Preparo: " + (intent.getStringExtra(EXTRA_LABEL) ?: ""))
         TdClient.downloadFile(targetFileId) { obj ->
-            if (obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+            if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
     }
 
     private fun onFileProgress(file: TdApi.File) {
+        if (stopped) return
         val local = file.local
         if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
             play(local.path)
@@ -105,7 +103,7 @@ class PlayerActivity : FragmentActivity() {
     }
 
     private fun play(path: String) {
-        if (started) return
+        if (started || stopped) return
         started = true
         status.visibility = View.GONE
         val exo = player ?: return
@@ -121,10 +119,9 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        TdClient.removeFileListener(fileListener)
-        if (!started && targetFileId >= 0) {
-            TdClient.cancelDownload(targetFileId)
-        }
+        stopped = true
+        TdClient.onFileUpdated = null
+        if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
         player?.release()
         player = null
     }
