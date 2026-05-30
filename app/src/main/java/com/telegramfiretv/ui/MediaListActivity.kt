@@ -161,7 +161,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         grid = (arguments?.getString("mode") ?: "grid") == "grid"
         title = arguments?.getString("title") ?: "Contenuti"
 
-        gridPresenter = VerticalGridPresenter().apply { numberOfColumns = if (grid) 4 else 1 }
+        gridPresenter = VerticalGridPresenter().apply {             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1         }
         val itemPresenter: Presenter = if (grid) GridMediaPresenter(thumbs) else ListMediaPresenter(thumbs)
         itemsAdapter = ArrayObjectAdapter(itemPresenter)
         adapter = itemsAdapter
@@ -284,8 +284,11 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
 }
 
 class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
-    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
+  override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media_list, parent, false)
+        val pct = Settings.listWidthPercent(parent.context)
+        val width = parent.context.resources.displayMetrics.widthPixels * pct / 100
+        v.layoutParams?.let { it.width = width }
         return ViewHolder(v)
     }
 
