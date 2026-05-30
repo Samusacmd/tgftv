@@ -3,6 +3,7 @@ package com.telegramfiretv.player
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -14,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.telegramfiretv.databinding.ActivityPlayerBinding
 import com.telegramfiretv.tdlib.TdClient
+import com.telegramfiretv.ui.Settings
 import org.drinkless.tdlib.TdApi
 import java.io.File
 
@@ -56,6 +58,7 @@ class PlayerActivity : FragmentActivity() {
         super.onStart()
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
+        binding.playerView.useController = Settings.playerDim(this)
         player = exo
 
         exo.addListener(object : Player.Listener {
@@ -79,6 +82,20 @@ class PlayerActivity : FragmentActivity() {
         TdClient.downloadFile(targetFileId) { obj ->
             if (obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (!Settings.playerDim(this)) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_CENTER,
+                KeyEvent.KEYCODE_ENTER,
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                    player?.let { it.playWhenReady = !it.playWhenReady }
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
     }
 
     private fun onFileProgress(file: TdApi.File) {
