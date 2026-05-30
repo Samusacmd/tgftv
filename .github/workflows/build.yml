@@ -55,14 +55,17 @@ jobs:
             echo "Copiato $so -> jniLibs/$abi/"
           done
 
-          # Copia i sorgenti Java generati (org/drinkless/tdlib).
-          javadir="$(find tdlib-extracted -type d -path '*org/drinkless/tdlib' | head -n1)"
-          if [ -z "$javadir" ]; then
-            echo "ERRORE: sorgenti TDLib (org/drinkless/tdlib) non trovati nello zip"; exit 1
+          # Trova i SORGENTI Java partendo da TdApi.java (evita la cartella Javadoc con gli .html).
+          tdapi="$(find tdlib-extracted -path '*org/drinkless/tdlib/TdApi.java' | head -n1)"
+          if [ -z "$tdapi" ]; then
+            echo "ERRORE: TdApi.java non trovato nello zip"; exit 1
           fi
-          mkdir -p app/src/main/java/org/drinkless
-          cp -r "$javadir" app/src/main/java/org/drinkless/
-          echo "Sorgenti Java copiati da $javadir"
+          srcroot="${tdapi%/org/drinkless/tdlib/TdApi.java}"
+          echo "Sorgenti Java trovati in: $srcroot/org"
+          mkdir -p app/src/main/java
+          cp -r "$srcroot/org" app/src/main/java/
+          echo "===== File Java copiati ====="
+          find app/src/main/java/org/drinkless -name '*.java'
           echo "===== jniLibs finali ====="; find app/src/main/jniLibs | sort
 
       - name: Gradle 8.9
