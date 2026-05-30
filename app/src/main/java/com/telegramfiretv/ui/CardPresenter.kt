@@ -1,13 +1,11 @@
 package com.telegramfiretv.ui
 
-import android.graphics.drawable.BitmapDrawable
 import android.view.ViewGroup
 import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
-import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
 
-class CardPresenter : Presenter() {
+class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
 
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val cardView = ImageCardView(parent.context).apply {
@@ -23,17 +21,7 @@ class CardPresenter : Presenter() {
         val card = viewHolder.view as ImageCardView
         card.titleText = chat.title
         card.contentText = chatTypeLabel(chat)
-
-        val photo = chat.photo
-        val small = photo?.small
-        val crisp = if (small != null && small.local.isDownloadingCompleted && small.local.path.isNotEmpty())
-            decodeImageFile(small.local.path) else null
-        val bmp = crisp ?: decodeImageBytes(photo?.minithumbnail?.data)
-        card.mainImage = if (bmp != null) BitmapDrawable(card.resources, bmp) else null
-
-        if (crisp == null && small != null && small.local.canBeDownloaded && !small.local.isDownloadingCompleted) {
-            TdClient.downloadFile(small.id)
-        }
+        thumbs.load(card, chat.photo?.small, chat.photo?.minithumbnail?.data)
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
@@ -41,6 +29,7 @@ class CardPresenter : Presenter() {
         card.titleText = null
         card.contentText = null
         card.mainImage = null
+        card.tag = null
     }
 
     private fun chatTypeLabel(chat: TdApi.Chat): String =
