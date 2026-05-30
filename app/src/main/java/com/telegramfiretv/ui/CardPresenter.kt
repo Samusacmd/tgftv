@@ -1,11 +1,12 @@
 package com.telegramfiretv.ui
 
+import android.graphics.BitmapFactory
+import android.graphics.drawable.BitmapDrawable
 import android.view.ViewGroup
 import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
 import org.drinkless.tdlib.TdApi
 
-/** Presenter Leanback che disegna ogni chat come una card. */
 class CardPresenter : Presenter() {
 
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
@@ -22,12 +23,19 @@ class CardPresenter : Presenter() {
         val card = viewHolder.view as ImageCardView
         card.titleText = chat.title
         card.contentText = chatTypeLabel(chat)
+
+        val mini = chat.photo?.minithumbnail
+        card.mainImage = if (mini != null) {
+            val bmp = BitmapFactory.decodeByteArray(mini.data, 0, mini.data.size)
+            if (bmp != null) BitmapDrawable(card.resources, bmp) else null
+        } else null
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         val card = viewHolder.view as ImageCardView
         card.titleText = null
         card.contentText = null
+        card.mainImage = null
     }
 
     private fun chatTypeLabel(chat: TdApi.Chat): String =
