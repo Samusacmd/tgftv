@@ -39,18 +39,8 @@ class MainFragment : BrowseSupportFragment() {
     }
 
     private fun refreshChats() {
-        val sorted = synchronized(TdClient.chats) { TdClient.chats.toList() }
-            .sortedByDescending { mainOrder(it) }
         chatsAdapter.clear()
-        chatsAdapter.addAll(0, sorted)
-    }
-
-    private fun mainOrder(chat: TdApi.Chat): Long {
-        val pos = chat.positions?.firstOrNull {
-            it.list.constructor == TdApi.ChatListMain.CONSTRUCTOR
-        }
-        if (pos != null && pos.order != 0L) return pos.order
-        return (chat.lastMessage?.date ?: 0).toLong()
+        chatsAdapter.addAll(0, TdClient.orderedChats())
     }
 
     override fun onDestroy() {
