@@ -1,6 +1,7 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.os.Bundle
@@ -19,13 +20,20 @@ data class MediaEntry(
     val title: String,
     val type: String,
     val durationSec: Int,
-    val mini: ByteArray?
+    val mini: ByteArray?,
+    val thumbFile: TdApi.File?
 )
 
 internal fun formatDuration(sec: Int): String {
     if (sec <= 0) return ""
     return "%d:%02d".format(sec / 60, sec % 60)
 }
+
+internal fun decodeImageBytes(data: ByteArray?): Bitmap? =
+    if (data == null) null else BitmapFactory.decodeByteArray(data, 0, data.size)
+
+internal fun decodeImageFile(path: String?): Bitmap? =
+    if (path.isNullOrEmpty()) null else BitmapFactory.decodeFile(path)
 
 class MediaListActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -78,7 +86,7 @@ class MediaListFragment : BrowseSupportFragment() {
     }
 
     private fun loadPage(from: Long) {
-        TdClient.getChatHistory(chatId, from, 50) { result ->
+        TdClient.getChatHistory(chatId, from, 80) { result ->
             val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             activity?.runOnUiThread {
                 if (msgs.isEmpty()) {
@@ -95,7 +103,7 @@ class MediaListFragment : BrowseSupportFragment() {
                     oldest = m.id
                 }
                 pages++
-                if (pages < 6 && collected.size < 50) loadPage(oldest) else finishLoading()
+                if (pages < 15 && collected.size < 200) loadPage(oldest) else finishLoading()
             }
         }
     }
@@ -113,20 +121,20 @@ class MediaListFragment : BrowseSupportFragment() {
     private fun extractMedia(msg: TdApi.Message): MediaEntry? {
         return when (val c = msg.content) {
             is TdApi.MessageVideo ->
-                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration, c.video.minithumbnail?.data)
+                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration, c.video.minithumbnail?.data, c.video.thumbnail?.file)
             is TdApi.MessageAudio -> {
                 val name = listOf(c.audio.performer, c.audio.title).filter { it.isNotBlank() }
                     .joinToString(" - ").ifEmpty { c.audio.fileName.ifEmpty { "Audio" } }
-                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration, c.audio.albumCoverMinithumbnail?.data)
+                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration, c.audio.albumCoverMinithumbnail?.data, c.audio.albumCoverThumbnail?.file)
             }
-            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration, null)
-            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data)
-            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data)
+            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration, null, null)
+            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data, c.videoNote.thumbnail?.file)
+            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data, c.animation.thumbnail?.file)
             is TdApi.MessageDocument -> {
                 val mime = c.document.mimeType
                 when {
-                    mime.startsWith("video/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Video" }, "Video", 0, c.document.minithumbnail?.data)
-                    mime.startsWith("audio/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Audio" }, "Audio", 0, c.document.minithumbnail?.data)
+                    mime.startsWith("video/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Video" }, "Video", 0, c.document.minithumbnail?.data, c.document.thumbnail?.file)
+                    mime.startsWith("audio/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Audio" }, "Audio", 0, c.document.minithumbnail?.data, c.document.thumbnail?.file)
                     else -> null
                 }
             }
@@ -152,11 +160,15 @@ class MediaPresenter : Presenter() {
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
 
-        val data = e.mini
-        card.mainImage = if (data != null) {
-            val bmp = BitmapFactory.decodeByteArray(data, 0, data.size)
-            if (bmp != null) BitmapDrawable(card.resources, bmp) else null
-        } else null
+        val thumb = e.thumbFile
+        val crisp = if (thumb != null && thumb.local.isDownloadingCompleted && thumb.local.path.isNotEmpty())
+            decodeImageFile(thumb.local.path) else null
+        val bmp = crisp ?: decodeImageBytes(e.mini)
+        card.mainImage = if (bmp != null) BitmapDrawable(card.resources, bmp) else null
+
+        if (crisp == null && thumb != null && thumb.local.canBeDownloaded && !thumb.local.isDownloadingCompleted) {
+            TdClient.downloadFile(thumb.id)
+        }
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
