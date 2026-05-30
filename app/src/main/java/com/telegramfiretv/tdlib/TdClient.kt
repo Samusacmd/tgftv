@@ -98,4 +98,8 @@ object TdClient {
     fun downloadFile(fileId: Int, handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
     }
+
+    fun cancelDownload(fileId: Int) {
+        client?.send(TdApi.CancelDownloadFile(fileId, false)) {}
+    }
 }
