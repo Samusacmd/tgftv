@@ -12,14 +12,14 @@ import com.telegramfiretv.R
 object Settings {
     private fun p(c: Context) = c.getSharedPreferences("tgftv_settings", Context.MODE_PRIVATE)
 
-    fun gridColumns(c: Context): Int = p(c).getInt("grid_cols", 4)
+    fun gridColumns(c: Context): Int = p(c).getInt("grid_cols", 6)
     fun cycleGridColumns(c: Context): Int {
-        val next = when (gridColumns(c)) { 3 -> 4; 4 -> 5; 5 -> 6; else -> 3 }
+        val next = when (gridColumns(c)) { 3 -> 4; 4 -> 5; 5 -> 6; 6 -> 7; else -> 3 }
         p(c).edit().putInt("grid_cols", next).apply()
         return next
     }
 
-    fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 100)
+    fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 60)
     fun cycleListWidth(c: Context): Int {
         val next = when (listWidthPercent(c)) { 60 -> 80; 80 -> 100; else -> 60 }
         p(c).edit().putInt("list_width", next).apply()
@@ -32,6 +32,10 @@ object Settings {
         p(c).edit().putBoolean("player_dim", next).apply()
         return next
     }
+
+    fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
+    fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
+    fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
 }
 
 class SettingsActivity : FragmentActivity() {
@@ -53,24 +57,17 @@ class SettingsActivity : FragmentActivity() {
 
         val gridBtn = makeButton()
         gridBtn.text = "Colonne griglia: ${Settings.gridColumns(this)}"
-        gridBtn.setOnClickListener {
-            gridBtn.text = "Colonne griglia: ${Settings.cycleGridColumns(this)}"
-        }
+        gridBtn.setOnClickListener { gridBtn.text = "Colonne griglia: ${Settings.cycleGridColumns(this)}" }
         root.addView(gridBtn)
 
         val listBtn = makeButton()
         listBtn.text = "Larghezza elenco: ${Settings.listWidthPercent(this)}%"
-        listBtn.setOnClickListener {
-            listBtn.text = "Larghezza elenco: ${Settings.cycleListWidth(this)}%"
-        }
+        listBtn.setOnClickListener { listBtn.text = "Larghezza elenco: ${Settings.cycleListWidth(this)}%" }
         root.addView(listBtn)
 
         val dimBtn = makeButton()
         dimBtn.text = dimLabel()
-        dimBtn.setOnClickListener {
-            Settings.togglePlayerDim(this)
-            dimBtn.text = dimLabel()
-        }
+        dimBtn.setOnClickListener { Settings.togglePlayerDim(this); dimBtn.text = dimLabel() }
         root.addView(dimBtn)
 
         setContentView(ScrollView(this).apply { addView(root) })
