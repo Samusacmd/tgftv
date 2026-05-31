@@ -2,6 +2,8 @@ package com.telegramfiretv.player
 
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +36,9 @@ class PlayerActivity : FragmentActivity() {
 
     @Volatile
     private var stopped = false
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var pendingDelete: Runnable? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -77,7 +82,6 @@ class PlayerActivity : FragmentActivity() {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
-                    // Fine riproduzione: azzera la ripresa e torna all'elenco.
                     Settings.clearPosition(this@PlayerActivity, targetFileId)
                     finish()
                 }
@@ -117,10 +121,15 @@ class PlayerActivity : FragmentActivity() {
         status.visibility = View.GONE
         val exo = player ?: return
 
-        // Cancella la cache del media precedente (diverso da questo).
+        // Cancella la cache del media precedente solo dopo 30s di questo
+        // (così tornando indietro subito non si perde nulla).
         val prev = lastPlayedFileId
-        if (prev >= 0 && prev != targetFileId) TdClient.deleteFile(prev)
         lastPlayedFileId = targetFileId
+        if (prev >= 0 && prev != targetFileId) {
+            val r = Runnable { TdClient.deleteFile(prev) }
+            pendingDelete = r
+            handler.postDelayed(r, 30_000)
+        }
 
         exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
         exo.prepare()
@@ -137,7 +146,8 @@ class PlayerActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         stopped = true
-        // Salva la posizione se eravamo a metà (per riprendere dopo).
+        pendingDelete?.let { handler.removeCallbacks(it) }
+        pendingDelete = null
         player?.let {
             if (started && it.playbackState != Player.STATE_ENDED) {
                 Settings.savePosition(this, targetFileId, it.currentPosition)
