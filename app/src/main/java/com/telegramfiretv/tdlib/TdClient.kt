@@ -116,6 +116,14 @@ object TdClient {
     fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)) { handler(it) }
     }
+    
+    fun getForumTopics(chatId: Long, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetForumTopics(chatId, "", 0, 0, 0, 100)) { handler(it) }
+    }
+
+    fun getThreadHistory(chatId: Long, messageThreadId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetMessageThreadHistory(chatId, messageThreadId, fromMessageId, 0, limit)) { handler(it) }
+    }
 
     fun downloadFile(fileId: Int, handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
