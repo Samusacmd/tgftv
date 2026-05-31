@@ -2,6 +2,7 @@ package com.telegramfiretv.ui
 
 import android.content.Context
 import android.os.Bundle
+import android.view.KeyEvent
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -19,9 +20,9 @@ object Settings {
     }
 
     fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 60)
-    fun cycleListWidth(c: Context): Int {
-        val next = when (listWidthPercent(c)) { 60 -> 80; 80 -> 100; else -> 60 }
-        p(c).edit().putInt("list_width", next).apply(); return next
+    fun adjustListWidth(c: Context, delta: Int): Int {
+        val v = (listWidthPercent(c) + delta).coerceIn(20, 100)
+        p(c).edit().putInt("list_width", v).apply(); return v
     }
 
     fun playerDim(c: Context): Boolean = p(c).getBoolean("player_dim", true)
@@ -82,8 +83,17 @@ class SettingsActivity : FragmentActivity() {
         root.addView(gridBtn)
 
         val listBtn = makeButton()
-        listBtn.text = "Larghezza elenco: ${Settings.listWidthPercent(this)}%"
-        listBtn.setOnClickListener { listBtn.text = "Larghezza elenco: ${Settings.cycleListWidth(this)}%" }
+        fun widthLabel() = "Larghezza elenco: ${Settings.listWidthPercent(this)}%  ◀ ▶"
+        listBtn.text = widthLabel()
+        listBtn.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> { Settings.adjustListWidth(this, -10); listBtn.text = widthLabel(); true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> { Settings.adjustListWidth(this, +10); listBtn.text = widthLabel(); true }
+                    else -> false
+                }
+            } else false
+        }
         root.addView(listBtn)
 
         val dimBtn = makeButton()
