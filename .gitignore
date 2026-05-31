@@ -1,0 +1,10 @@
+/build
+/app/build
+.gradle/
+local.properties
+/tdlib-out
+/tdlib-extracted
+/app/src/main/jniLibs
+/app/src/main/java/org
+.idea/
+*.iml
