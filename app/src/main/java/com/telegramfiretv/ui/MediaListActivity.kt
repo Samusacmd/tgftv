@@ -36,6 +36,8 @@ data class MediaEntry(
     val thumbFile: TdApi.File?
 )
 
+data class TopicEntry(val threadId: Long, val name: String)
+
 internal fun formatDuration(sec: Int): String {
     if (sec <= 0) return ""
     return "%d:%02d".format(sec / 60, sec % 60)
@@ -97,6 +99,7 @@ class ThumbLoader {
 class MediaListActivity : FragmentActivity() {
 
     private var chatId = 0L
+    private var threadId = 0L
     private var titleText: String? = null
     private var mode = "grid"
 
@@ -108,6 +111,7 @@ class MediaListActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         chatId = intent.getLongExtra("chatId", 0L)
+        threadId = intent.getLongExtra("threadId", 0L)
         titleText = intent.getStringExtra("title")
         mode = intent.getStringExtra("mode") ?: "grid"
 
@@ -118,6 +122,7 @@ class MediaListActivity : FragmentActivity() {
             val f = MediaGridFragment().apply {
                 arguments = Bundle().apply {
                     putLong("chatId", chatId)
+                    putLong("threadId", threadId)
                     putString("title", titleText)
                     putString("mode", mode)
                 }
@@ -132,6 +137,7 @@ class MediaListActivity : FragmentActivity() {
             startActivity(
                 Intent(this, MediaListActivity::class.java)
                     .putExtra("chatId", chatId)
+                    .putExtra("threadId", threadId)
                     .putExtra("title", titleText)
                     .putExtra("mode", if (mode == "grid") "list" else "grid")
             )
@@ -149,6 +155,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private val collected = mutableListOf<MediaEntry>()
 
     private var chatId = 0L
+    private var threadId = 0L
     private var grid = true
     private var oldest = 0L
     private var pages = 0
@@ -158,36 +165,76 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         super.onCreate(savedInstanceState)
         thumbs.start()
         chatId = arguments?.getLong("chatId") ?: 0L
+        threadId = arguments?.getLong("threadId") ?: 0L
         grid = (arguments?.getString("mode") ?: "grid") == "grid"
         title = arguments?.getString("title") ?: "Contenuti"
 
-        gridPresenter = VerticalGridPresenter().apply {             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1         }
+        gridPresenter = VerticalGridPresenter().apply {
+            numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1
+        }
+
+        setOnItemViewClickedListener { _, item, _, _ ->
+            when (item) {
+                is TopicEntry -> startActivity(
+                    Intent(requireContext(), MediaListActivity::class.java)
+                        .putExtra("chatId", chatId)
+                        .putExtra("threadId", item.threadId)
+                        .putExtra("title", item.name)
+                        .putExtra("mode", if (grid) "grid" else "list")
+                )
+                is MediaEntry -> startActivity(
+                    Intent(requireContext(), PlayerActivity::class.java)
+                        .putExtra(PlayerActivity.EXTRA_FILE_ID, item.fileId)
+                        .putExtra(PlayerActivity.EXTRA_LABEL, item.title)
+                )
+            }
+        }
+
+        TdClient.openChat(chatId)
+
+        if (threadId == 0L) {
+            // Se la chat è un forum, mostra prima gli argomenti.
+            TdClient.getForumTopics(chatId) { result ->
+                val topics = (result as? TdApi.ForumTopics)?.topics?.filterNotNull().orEmpty()
+                activity?.runOnUiThread {
+                    if (topics.isNotEmpty()) showTopics(topics) else startMedia()
+                }
+            }
+        } else {
+            startMedia()
+        }
+    }
+
+    private fun showTopics(topics: List<TdApi.ForumTopic>) {
+        gridPresenter = VerticalGridPresenter().apply { numberOfColumns = 1 }
+        val a = ArrayObjectAdapter(TopicPresenter())
+        for (t in topics) a.add(TopicEntry(t.info.messageThreadId, t.info.name))
+        adapter = a
+        title = "Argomenti (${topics.size})"
+    }
+
+    private fun startMedia() {
         val itemPresenter: Presenter = if (grid) GridMediaPresenter(thumbs) else ListMediaPresenter(thumbs)
         itemsAdapter = ArrayObjectAdapter(itemPresenter)
         adapter = itemsAdapter
 
-        setOnItemViewClickedListener { _, item, _, _ ->
-            val e = item as MediaEntry
-            startActivity(
-                Intent(requireContext(), PlayerActivity::class.java)
-                    .putExtra(PlayerActivity.EXTRA_FILE_ID, e.fileId)
-                    .putExtra(PlayerActivity.EXTRA_LABEL, e.title)
-            )
-        }
-
         val cached = MediaListActivity.cache
-        if (cached != null && MediaListActivity.cacheChatId == chatId) {
+        if (threadId == 0L && cached != null && MediaListActivity.cacheChatId == chatId) {
             collected.addAll(cached)
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
         } else {
-            TdClient.openChat(chatId)
             loadPage(0L)
         }
     }
 
+    private fun fetch(from: Long, handler: (TdApi.Object) -> Unit) {
+        if (threadId != 0L) TdClient.getThreadHistory(chatId, threadId, from, 80, handler)
+        else TdClient.getChatHistory(chatId, from, 80, handler)
+    }
+
     private fun loadPage(from: Long) {
-        TdClient.getChatHistory(chatId, from, 80) { result ->
+        fetch(from) { result ->
             val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             activity?.runOnUiThread {
                 if (msgs.isEmpty()) {
@@ -210,12 +257,14 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun finishLoading() {
         itemsAdapter.clear()
         if (collected.isEmpty()) {
-            title = "Nessun video o audio trovato"
+            title = if (threadId != 0L) "Nessun contenuto in questo argomento" else "Nessun video o audio trovato"
         } else {
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
-            MediaListActivity.cache = collected.toList()
-            MediaListActivity.cacheChatId = chatId
+            if (threadId == 0L) {
+                MediaListActivity.cache = collected.toList()
+                MediaListActivity.cacheChatId = chatId
+            }
         }
     }
 
@@ -284,7 +333,7 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
 }
 
 class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
-  override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
+    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media_list, parent, false)
         val pct = Settings.listWidthPercent(parent.context)
         val width = parent.context.resources.displayMetrics.widthPixels * pct / 100
@@ -295,10 +344,7 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as MediaEntry
         val v = viewHolder.view
-        v.findViewById<TextView>(R.id.title).apply {
-            text = e.title
-            isSelected = true
-        }
+        v.findViewById<TextView>(R.id.title).apply { text = e.title; isSelected = true }
         val dur = formatDuration(e.durationSec)
         v.findViewById<TextView>(R.id.subtitle).text =
             if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
@@ -306,9 +352,31 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
-        viewHolder.view.findViewById<ImageView>(R.id.thumb)?.apply {
+        viewHolder.view.findViewById<ImageView>(R.id.thumb)?.apply { setImageBitmap(null); tag = null }
+    }
+}
+
+class TopicPresenter : Presenter() {
+    override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
+        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media_list, parent, false)
+        val pct = Settings.listWidthPercent(parent.context)
+        val width = parent.context.resources.displayMetrics.widthPixels * pct / 100
+        v.layoutParams?.let { it.width = width }
+        return ViewHolder(v)
+    }
+
+    override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
+        val e = item as TopicEntry
+        val v = viewHolder.view
+        v.findViewById<TextView>(R.id.title).apply { text = e.name; isSelected = true }
+        v.findViewById<TextView>(R.id.subtitle).text = "Argomento"
+        v.findViewById<ImageView>(R.id.thumb).apply {
             setImageBitmap(null)
-            tag = null
+            setBackgroundColor(0xFF223344.toInt())
         }
+    }
+
+    override fun onUnbindViewHolder(viewHolder: ViewHolder) {
+        viewHolder.view.findViewById<ImageView>(R.id.thumb)?.setImageBitmap(null)
     }
 }
