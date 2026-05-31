@@ -1,5 +1,6 @@
 package com.telegramfiretv.ui
 
+import android.graphics.drawable.ColorDrawable
 import android.view.ViewGroup
 import androidx.leanback.widget.ImageCardView
 import androidx.leanback.widget.Presenter
@@ -21,7 +22,13 @@ class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
         val card = viewHolder.view as ImageCardView
         card.titleText = chat.title
         card.contentText = chatTypeLabel(chat)
-        thumbs.load(card, chat.photo?.small, chat.photo?.minithumbnail?.data)
+
+        if (Settings.showChatImages(card.context)) {
+            thumbs.load(card, chat.photo?.small, chat.photo?.minithumbnail?.data)
+        } else {
+            card.tag = null
+            card.mainImage = ColorDrawable(0xFF22303A.toInt())
+        }
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
