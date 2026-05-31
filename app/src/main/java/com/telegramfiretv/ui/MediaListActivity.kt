@@ -208,11 +208,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun showTopics(topics: List<TdApi.ForumTopic>) {
         val a = ArrayObjectAdapter(TopicPresenter())
         for (t in topics) {
-            val tid = t.lastMessage?.messageThreadId ?: 0L
-            if (tid != 0L) a.add(TopicEntry(tid, t.info.name))
+            val anchor = t.lastMessage?.id ?: 0L
+            if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name))
         }
         if (a.size() == 0) {
-            // Nessun argomento utilizzabile: mostra i media come una chat normale.
+            // Nessun argomento con messaggi: mostra i media come chat normale.
             startMedia()
             return
         }
