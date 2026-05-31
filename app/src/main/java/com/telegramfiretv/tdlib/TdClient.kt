@@ -102,4 +102,8 @@ object TdClient {
     fun cancelDownload(fileId: Int) {
         client?.send(TdApi.CancelDownloadFile(fileId, false)) {}
     }
+    
+    fun deleteFile(fileId: Int) {
+        client?.send(TdApi.DeleteFile(fileId)) {}
+    }
 }
