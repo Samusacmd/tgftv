@@ -206,11 +206,19 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     }
 
     private fun showTopics(topics: List<TdApi.ForumTopic>) {
-        gridPresenter = VerticalGridPresenter().apply { numberOfColumns = 1 }
         val a = ArrayObjectAdapter(TopicPresenter())
-        for (t in topics) a.add(TopicEntry(t.info.messageThreadId, t.info.name))
+        for (t in topics) {
+            val tid = t.lastMessage?.messageThreadId ?: 0L
+            if (tid != 0L) a.add(TopicEntry(tid, t.info.name))
+        }
+        if (a.size() == 0) {
+            // Nessun argomento utilizzabile: mostra i media come una chat normale.
+            startMedia()
+            return
+        }
+        gridPresenter = VerticalGridPresenter().apply { numberOfColumns = 1 }
         adapter = a
-        title = "Argomenti (${topics.size})"
+        title = "Argomenti (${a.size()})"
     }
 
     private fun startMedia() {
