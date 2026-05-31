@@ -1,6 +1,5 @@
 package com.telegramfiretv.player
 
-import android.graphics.Color
 import android.net.Uri
 import android.os.Bundle
 import android.view.Gravity
@@ -24,6 +23,7 @@ class PlayerActivity : FragmentActivity() {
     companion object {
         const val EXTRA_FILE_ID = "file_id"
         const val EXTRA_LABEL = "label"
+        private var lastPlayedFileId = -1
     }
 
     private lateinit var binding: ActivityPlayerBinding
@@ -32,9 +32,8 @@ class PlayerActivity : FragmentActivity() {
     private var targetFileId: Int = -1
     private var started = false
 
-    private val fileListener: (TdApi.File) -> Unit = { file ->
-        if (file.id == targetFileId) runOnUiThread { onFileProgress(file) }
-    }
+    @Volatile
+    private var stopped = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,15 +59,12 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStart() {
         super.onStart()
+        stopped = false
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
         binding.playerView.useController = true
-        // Oscuramento disattivato: comandi visibili ma senza velo scuro.
-        if (!Settings.playerDim(this)) {
-            binding.playerView
-                .findViewById<View>(androidx.media3.ui.R.id.exo_controls_background)
-                ?.setBackgroundColor(Color.TRANSPARENT)
-        }
+        binding.playerView.controllerAutoShow = Settings.playerDim(this)
+        binding.playerView.controllerShowTimeoutMs = 2000
         player = exo
 
         exo.addListener(object : Player.Listener {
@@ -78,6 +74,14 @@ class PlayerActivity : FragmentActivity() {
                     status.text = "Errore riproduzione:\n${error.errorCodeName}\n${error.message ?: ""}"
                 }
             }
+
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    // Fine riproduzione: azzera la ripresa e torna all'elenco.
+                    Settings.clearPosition(this@PlayerActivity, targetFileId)
+                    finish()
+                }
+            }
         })
 
         if (targetFileId < 0) {
@@ -85,14 +89,17 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        TdClient.addFileListener(fileListener)
+        TdClient.onFileUpdated = { file ->
+            if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
+        }
         setStatus("Preparo: " + (intent.getStringExtra(EXTRA_LABEL) ?: ""))
         TdClient.downloadFile(targetFileId) { obj ->
-            if (obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+            if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
     }
 
     private fun onFileProgress(file: TdApi.File) {
+        if (stopped) return
         val local = file.local
         if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
             play(local.path)
@@ -105,12 +112,20 @@ class PlayerActivity : FragmentActivity() {
     }
 
     private fun play(path: String) {
-        if (started) return
+        if (started || stopped) return
         started = true
         status.visibility = View.GONE
         val exo = player ?: return
+
+        // Cancella la cache del media precedente (diverso da questo).
+        val prev = lastPlayedFileId
+        if (prev >= 0 && prev != targetFileId) TdClient.deleteFile(prev)
+        lastPlayedFileId = targetFileId
+
         exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
         exo.prepare()
+        val pos = Settings.savedPosition(this, targetFileId)
+        if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
     }
 
@@ -121,10 +136,15 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
-        TdClient.removeFileListener(fileListener)
-        if (!started && targetFileId >= 0) {
-            TdClient.cancelDownload(targetFileId)
+        stopped = true
+        // Salva la posizione se eravamo a metà (per riprendere dopo).
+        player?.let {
+            if (started && it.playbackState != Player.STATE_ENDED) {
+                Settings.savePosition(this, targetFileId, it.currentPosition)
+            }
         }
+        TdClient.onFileUpdated = null
+        if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
         player?.release()
         player = null
     }
