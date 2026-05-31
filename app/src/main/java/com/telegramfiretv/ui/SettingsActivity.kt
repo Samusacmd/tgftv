@@ -15,22 +15,29 @@ object Settings {
     fun gridColumns(c: Context): Int = p(c).getInt("grid_cols", 6)
     fun cycleGridColumns(c: Context): Int {
         val next = when (gridColumns(c)) { 3 -> 4; 4 -> 5; 5 -> 6; 6 -> 7; else -> 3 }
-        p(c).edit().putInt("grid_cols", next).apply()
-        return next
+        p(c).edit().putInt("grid_cols", next).apply(); return next
     }
 
     fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 60)
     fun cycleListWidth(c: Context): Int {
         val next = when (listWidthPercent(c)) { 60 -> 80; 80 -> 100; else -> 60 }
-        p(c).edit().putInt("list_width", next).apply()
-        return next
+        p(c).edit().putInt("list_width", next).apply(); return next
     }
 
     fun playerDim(c: Context): Boolean = p(c).getBoolean("player_dim", true)
     fun togglePlayerDim(c: Context): Boolean {
-        val next = !playerDim(c)
-        p(c).edit().putBoolean("player_dim", next).apply()
-        return next
+        val n = !playerDim(c); p(c).edit().putBoolean("player_dim", n).apply(); return n
+    }
+
+    fun chatViewMode(c: Context): String = p(c).getString("chat_view", "list") ?: "list"
+    fun cycleChatView(c: Context): String {
+        val n = if (chatViewMode(c) == "list") "grid" else "list"
+        p(c).edit().putString("chat_view", n).apply(); return n
+    }
+
+    fun showChatImages(c: Context): Boolean = p(c).getBoolean("chat_images", true)
+    fun toggleChatImages(c: Context): Boolean {
+        val n = !showChatImages(c); p(c).edit().putBoolean("chat_images", n).apply(); return n
     }
 
     fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
@@ -55,6 +62,20 @@ class SettingsActivity : FragmentActivity() {
             setPadding(0, 0, 0, 32)
         })
 
+        val chatViewBtn = makeButton()
+        chatViewBtn.text = "Vista chat: ${if (Settings.chatViewMode(this) == "grid") "Griglia" else "Elenco"}"
+        chatViewBtn.setOnClickListener {
+            val v = Settings.cycleChatView(this)
+            chatViewBtn.text = "Vista chat: ${if (v == "grid") "Griglia" else "Elenco"}"
+        }
+        root.addView(chatViewBtn)
+
+        val chatImgBtn = makeButton()
+        fun imgLabel() = "Immagini chat: ${if (Settings.showChatImages(this)) "Sì" else "No"}"
+        chatImgBtn.text = imgLabel()
+        chatImgBtn.setOnClickListener { Settings.toggleChatImages(this); chatImgBtn.text = imgLabel() }
+        root.addView(chatImgBtn)
+
         val gridBtn = makeButton()
         gridBtn.text = "Colonne griglia: ${Settings.gridColumns(this)}"
         gridBtn.setOnClickListener { gridBtn.text = "Colonne griglia: ${Settings.cycleGridColumns(this)}" }
@@ -66,16 +87,14 @@ class SettingsActivity : FragmentActivity() {
         root.addView(listBtn)
 
         val dimBtn = makeButton()
+        fun dimLabel() = "Oscuramento player in pausa: ${if (Settings.playerDim(this)) "Sì" else "No"}"
         dimBtn.text = dimLabel()
         dimBtn.setOnClickListener { Settings.togglePlayerDim(this); dimBtn.text = dimLabel() }
         root.addView(dimBtn)
 
         setContentView(ScrollView(this).apply { addView(root) })
-        gridBtn.requestFocus()
+        chatViewBtn.requestFocus()
     }
-
-    private fun dimLabel() =
-        "Oscuramento player in pausa: ${if (Settings.playerDim(this)) "Sì" else "No"}"
 
     private fun makeButton(): Button {
         return Button(this).apply {
