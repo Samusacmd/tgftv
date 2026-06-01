@@ -36,7 +36,7 @@ data class MediaEntry(
     val thumbFile: TdApi.File?
 )
 
-data class TopicEntry(val threadId: Long, val name: String)
+data class TopicEntry(val threadId: Long, val name: String, val mini: ByteArray?, val thumbFile: TdApi.File?)
 
 internal fun formatDuration(sec: Int): String {
     if (sec <= 0) return ""
@@ -128,7 +128,7 @@ class MediaListActivity : FragmentActivity() {
                 }
             }
             supportFragmentManager.beginTransaction().replace(containerId, f).commit()
-            Toast.makeText(this, "Premi MENU (☰) per elenco/griglia", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Premi MENU per elenco/griglia", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -206,10 +206,13 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     }
 
     private fun showTopics(topics: List<TdApi.ForumTopic>) {
-        val a = ArrayObjectAdapter(TopicPresenter())
+        val chat = TdClient.orderedChats().firstOrNull { it.id == chatId }
+        val mini = chat?.photo?.minithumbnail?.data
+        val thumb = chat?.photo?.small
+        val a = ArrayObjectAdapter(TopicPresenter(thumbs))
         for (t in topics) {
             val anchor = t.lastMessage?.id ?: 0L
-            if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name))
+            if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name, mini, thumb))
         }
         if (a.size() == 0) {
             startMedia()
@@ -322,7 +325,7 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
         val card = viewHolder.view as ImageCardView
         card.titleText = e.title
         val dur = formatDuration(e.durationSec)
-        card.contentText = if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
+        card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
         card.findViewById<TextView>(androidx.leanback.R.id.title_text)?.apply {
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.MARQUEE
@@ -356,7 +359,7 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
         v.findViewById<TextView>(R.id.title).apply { text = e.title; isSelected = true }
         val dur = formatDuration(e.durationSec)
         v.findViewById<TextView>(R.id.subtitle).text =
-            if (dur.isNotEmpty()) "${e.type} · $dur" else e.type
+            if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
         thumbs.loadImage(v.findViewById(R.id.thumb), e.thumbFile, e.mini)
     }
 
@@ -365,7 +368,7 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     }
 }
 
-class TopicPresenter : Presenter() {
+class TopicPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val card = ImageCardView(parent.context).apply {
             isFocusable = true
@@ -380,7 +383,7 @@ class TopicPresenter : Presenter() {
         val card = viewHolder.view as ImageCardView
         card.titleText = e.name
         card.contentText = "Argomento"
-        card.mainImage = ColorDrawable(0xFF22303A.toInt())
+        thumbs.load(card, e.thumbFile, e.mini)
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
@@ -388,5 +391,6 @@ class TopicPresenter : Presenter() {
         card.titleText = null
         card.contentText = null
         card.mainImage = null
+        card.tag = null
     }
 }
