@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
@@ -25,13 +26,16 @@ class PlayerActivity : FragmentActivity() {
     companion object {
         const val EXTRA_FILE_ID = "file_id"
         const val EXTRA_LABEL = "label"
+        const val EXTRA_IS_AUDIO = "is_audio"
         private var lastPlayedFileId = -1
     }
 
     private lateinit var binding: ActivityPlayerBinding
     private var player: ExoPlayer? = null
     private lateinit var status: TextView
+    private lateinit var titleOverlay: TextView
     private var targetFileId: Int = -1
+    private var isAudio = false
     private var started = false
 
     @Volatile
@@ -42,6 +46,8 @@ class PlayerActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -59,7 +65,23 @@ class PlayerActivity : FragmentActivity() {
             ).apply { gravity = Gravity.CENTER }
         )
 
+        titleOverlay = TextView(this).apply {
+            setBackgroundColor(0x66000000)
+            setTextColor(0xFFFFFFFF.toInt())
+            textSize = 20f
+            setPadding(48, 28, 48, 28)
+            visibility = View.GONE
+        }
+        addContentView(
+            titleOverlay,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { gravity = Gravity.TOP }
+        )
+
         targetFileId = intent.getIntExtra(EXTRA_FILE_ID, -1)
+        isAudio = intent.getBooleanExtra(EXTRA_IS_AUDIO, false)
     }
 
     override fun onStart() {
@@ -68,8 +90,17 @@ class PlayerActivity : FragmentActivity() {
         val exo = ExoPlayer.Builder(this).build()
         binding.playerView.player = exo
         binding.playerView.useController = true
-        binding.playerView.controllerAutoShow = Settings.playerDim(this)
-        binding.playerView.controllerShowTimeoutMs = 2000
+
+        if (isAudio) {
+            binding.playerView.controllerShowTimeoutMs = 0
+            binding.playerView.controllerHideOnTouch = false
+            binding.playerView.controllerAutoShow = true
+            titleOverlay.text = intent.getStringExtra(EXTRA_LABEL) ?: ""
+            titleOverlay.visibility = View.VISIBLE
+        } else {
+            binding.playerView.controllerAutoShow = Settings.playerDim(this)
+            binding.playerView.controllerShowTimeoutMs = 2000
+        }
         player = exo
 
         exo.addListener(object : Player.Listener {
@@ -121,8 +152,6 @@ class PlayerActivity : FragmentActivity() {
         status.visibility = View.GONE
         val exo = player ?: return
 
-        // Cancella la cache del media precedente solo dopo 30s di questo
-        // (così tornando indietro subito non si perde nulla).
         val prev = lastPlayedFileId
         lastPlayedFileId = targetFileId
         if (prev >= 0 && prev != targetFileId) {
@@ -136,6 +165,7 @@ class PlayerActivity : FragmentActivity() {
         val pos = Settings.savedPosition(this, targetFileId)
         if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
+        if (isAudio) binding.playerView.showController()
     }
 
     private fun setStatus(text: String) {
@@ -157,5 +187,6 @@ class PlayerActivity : FragmentActivity() {
         if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
         player?.release()
         player = null
+        started = false
     }
 }
