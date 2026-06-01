@@ -181,11 +181,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         .putExtra("threadId", item.threadId)
                         .putExtra("title", item.name)
                         .putExtra("mode", if (grid) "grid" else "list")
-                )
-                is MediaEntry -> startActivity(
+               is MediaEntry -> startActivity(
                     Intent(requireContext(), PlayerActivity::class.java)
                         .putExtra(PlayerActivity.EXTRA_FILE_ID, item.fileId)
                         .putExtra(PlayerActivity.EXTRA_LABEL, item.title)
+                        .putExtra(PlayerActivity.EXTRA_IS_AUDIO, item.type == "Audio")
                 )
             }
         }
