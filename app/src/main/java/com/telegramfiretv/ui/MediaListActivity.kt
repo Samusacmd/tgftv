@@ -205,18 +205,19 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         }
     }
 
-    private fun showTopics(topics: List<TdApi.ForumTopic>) {
+   private fun showTopics(topics: List<TdApi.ForumTopic>) {
         val a = ArrayObjectAdapter(TopicPresenter())
         for (t in topics) {
             val anchor = t.lastMessage?.id ?: 0L
             if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name))
         }
         if (a.size() == 0) {
-            // Nessun argomento con messaggi: mostra i media come chat normale.
             startMedia()
             return
         }
-        gridPresenter = VerticalGridPresenter().apply { numberOfColumns = 1 }
+        gridPresenter = VerticalGridPresenter().apply {
+            numberOfColumns = Settings.gridColumns(requireContext())
+        }
         adapter = a
         title = "Argomenti (${a.size()})"
     }
@@ -366,24 +367,29 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
 
 class TopicPresenter : Presenter() {
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
-        val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media_list, parent, false)
-        val pct = Settings.listWidthPercent(parent.context)
-        val width = parent.context.resources.displayMetrics.widthPixels * pct / 100
-        v.layoutParams?.let { it.width = width }
-        return ViewHolder(v)
+        val card = ImageCardView(parent.context).apply {
+            isFocusable = true
+            isFocusableInTouchMode = true
+            setMainImageDimensions(280, 158)
+        }
+        return ViewHolder(card)
     }
 
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as TopicEntry
-        val v = viewHolder.view
-        v.findViewById<TextView>(R.id.title).apply { text = e.name; isSelected = true }
-        v.findViewById<TextView>(R.id.subtitle).text = "Argomento"
-        v.findViewById<ImageView>(R.id.thumb).apply {
-            setImageBitmap(null)
-            setBackgroundColor(0xFF223344.toInt())
-        }
+        val card = viewHolder.view as ImageCardView
+        card.titleText = e.name
+        card.contentText = "Argomento"
+        card.mainImage = ColorDrawable(0xFF22303A.toInt())
     }
 
+    override fun onUnbindViewHolder(viewHolder: ViewHolder) {
+        val card = viewHolder.view as ImageCardView
+        card.titleText = null
+        card.contentText = null
+        card.mainImage = null
+    }
+}
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         viewHolder.view.findViewById<ImageView>(R.id.thumb)?.setImageBitmap(null)
     }
