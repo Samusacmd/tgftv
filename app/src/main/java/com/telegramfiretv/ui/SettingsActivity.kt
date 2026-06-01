@@ -13,13 +13,13 @@ import com.telegramfiretv.R
 object Settings {
     private fun p(c: Context) = c.getSharedPreferences("tgftv_settings", Context.MODE_PRIVATE)
 
-    fun gridColumns(c: Context): Int = p(c).getInt("grid_cols", 6)
+    fun gridColumns(c: Context): Int = p(c).getInt("grid_cols", 5)
     fun cycleGridColumns(c: Context): Int {
         val next = when (gridColumns(c)) { 3 -> 4; 4 -> 5; 5 -> 6; 6 -> 7; else -> 3 }
         p(c).edit().putInt("grid_cols", next).apply(); return next
     }
 
-    fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 60)
+    fun listWidthPercent(c: Context): Int = p(c).getInt("list_width", 50)
     fun adjustListWidth(c: Context, delta: Int): Int {
         val v = (listWidthPercent(c) + delta).coerceIn(20, 100)
         p(c).edit().putInt("list_width", v).apply(); return v
@@ -30,7 +30,7 @@ object Settings {
         val n = !playerDim(c); p(c).edit().putBoolean("player_dim", n).apply(); return n
     }
 
-    fun chatViewMode(c: Context): String = p(c).getString("chat_view", "list") ?: "list"
+    fun chatViewMode(c: Context): String = p(c).getString("chat_view", "grid") ?: "grid"
     fun cycleChatView(c: Context): String {
         val n = if (chatViewMode(c) == "list") "grid" else "list"
         p(c).edit().putString("chat_view", n).apply(); return n
