@@ -108,6 +108,7 @@ class MediaListActivity : FragmentActivity() {
     companion object {
         var cache: List<MediaEntry>? = null
         var cacheChatId: Long = -1
+        var cacheShowAll: Boolean = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -159,6 +160,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var chatId = 0L
     private var threadId = 0L
     private var grid = true
+    private var showAll = true
     private var oldest = 0L
     private var pages = 0
     private var emptyRetries = 3
@@ -169,6 +171,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         chatId = arguments?.getLong("chatId") ?: 0L
         threadId = arguments?.getLong("threadId") ?: 0L
         grid = (arguments?.getString("mode") ?: "grid") == "grid"
+        showAll = Settings.mediaFilter(requireContext()) == "all"
         title = arguments?.getString("title") ?: "Contenuti"
 
         gridPresenter = VerticalGridPresenter().apply {
@@ -234,7 +237,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         adapter = itemsAdapter
 
         val cached = MediaListActivity.cache
-        if (threadId == 0L && cached != null && MediaListActivity.cacheChatId == chatId) {
+        if (threadId == 0L && cached != null && MediaListActivity.cacheChatId == chatId && MediaListActivity.cacheShowAll == showAll) {
             collected.addAll(cached)
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
@@ -260,7 +263,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                     return@runOnUiThread
                 }
                 for (m in msgs) {
-                    extractMedia(m)?.let { collected.add(it) }
+                    extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
                     oldest = m.id
                 }
                 pages++
@@ -279,6 +282,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             if (threadId == 0L) {
                 MediaListActivity.cache = collected.toList()
                 MediaListActivity.cacheChatId = chatId
+                MediaListActivity.cacheShowAll = showAll
             }
         }
     }
