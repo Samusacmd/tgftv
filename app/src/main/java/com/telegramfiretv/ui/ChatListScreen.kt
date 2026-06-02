@@ -41,6 +41,10 @@ class ChatGridFragment : VerticalGridSupportFragment() {
             )
         }
 
+        setOnSearchClickedListener {
+            startActivity(Intent(requireContext(), SearchActivity::class.java))
+        }
+
         TdClient.onChatsChanged = { activity?.runOnUiThread { refresh() } }
         TdClient.loadChats(200)
         refresh()
