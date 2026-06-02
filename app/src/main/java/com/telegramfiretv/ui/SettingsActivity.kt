@@ -41,6 +41,12 @@ object Settings {
         val n = !showChatImages(c); p(c).edit().putBoolean("chat_images", n).apply(); return n
     }
 
+    fun mediaFilter(c: Context): String = p(c).getString("media_filter", "all") ?: "all"
+    fun cycleMediaFilter(c: Context): String {
+        val n = if (mediaFilter(c) == "all") "av" else "all"
+        p(c).edit().putString("media_filter", n).apply(); return n
+    }
+
     fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
     fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
     fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
@@ -76,6 +82,12 @@ class SettingsActivity : FragmentActivity() {
         chatImgBtn.text = imgLabel()
         chatImgBtn.setOnClickListener { Settings.toggleChatImages(this); chatImgBtn.text = imgLabel() }
         root.addView(chatImgBtn)
+
+        val filterBtn = makeButton()
+        fun filterLabel() = "Mostra: ${if (Settings.mediaFilter(this) == "all") "Tutto" else "Solo video e audio"}"
+        filterBtn.text = filterLabel()
+        filterBtn.setOnClickListener { Settings.cycleMediaFilter(this); filterBtn.text = filterLabel() }
+        root.addView(filterBtn)
 
         val gridBtn = makeButton()
         gridBtn.text = "Colonne griglia: ${Settings.gridColumns(this)}"
