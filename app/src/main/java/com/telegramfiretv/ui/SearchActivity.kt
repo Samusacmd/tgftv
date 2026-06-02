@@ -38,6 +38,14 @@ class SearchActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        try {
+            setup()
+        } catch (e: Throwable) {
+            showCrash(e)
+        }
+    }
+
+    private fun setup() {
         thumbs.start()
 
         val root = LinearLayout(this).apply {
@@ -191,6 +199,18 @@ class SearchActivity : FragmentActivity() {
             TdApi.ChatTypePrivate.CONSTRUCTOR -> "Privato"
             else -> ""
         }
+
+    private fun showCrash(e: Throwable) {
+        val tv = TextView(this).apply {
+            text = "Errore nella ricerca:\n" + e.toString() + "\n\n" +
+                e.stackTrace.take(6).joinToString("\n")
+            setTextColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(0xFF000000.toInt())
+            textSize = 14f
+            setPadding(40, 40, 40, 40)
+        }
+        setContentView(ScrollView(this).apply { addView(tv) })
+    }
 
     private fun makeButton(): Button {
         return Button(this).apply {
