@@ -82,7 +82,10 @@ class SearchActivity : FragmentActivity() {
         ).apply { bottomMargin = 24 })
 
         resultsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this).apply { addView(resultsBox) }
+        val scroll = ScrollView(this).apply {
+            isFocusable = false
+            addView(resultsBox)
+        }
         root.addView(scroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT,
             0, 1f
@@ -182,7 +185,9 @@ class SearchActivity : FragmentActivity() {
         }
         v.isFocusable = true
         v.setOnFocusChangeListener { view, hasFocus ->
-            view.setBackgroundColor(if (hasFocus) 0xFF24445A.toInt() else 0x00000000)
+            view.setBackgroundColor(if (hasFocus) 0xFF2E6E9E.toInt() else 0xFF12202A.toInt())
+            val s = if (hasFocus) 1.03f else 1f
+            view.animate().scaleX(s).scaleY(s).setDuration(120).start()
         }
         v.setOnClickListener {
             startActivity(
