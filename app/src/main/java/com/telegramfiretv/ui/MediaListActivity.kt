@@ -50,6 +50,8 @@ internal fun decodeImageFile(path: String?): Bitmap? =
     if (path.isNullOrEmpty()) null else BitmapFactory.decodeFile(path)
 
 private val PLACEHOLDER = ColorDrawable(0xFF22303A.toInt())
+private val VIDEO_EXT = setOf("mp4", "mov", "mkv", "avi", "webm", "m4v", "3gp", "ts", "flv", "mpg", "mpeg", "wmv")
+private val AUDIO_EXT = setOf("mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "wma")
 
 class ThumbLoader {
     private val main = Handler(Looper.getMainLooper())
@@ -187,6 +189,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         .putExtra(PlayerActivity.EXTRA_FILE_ID, item.fileId)
                         .putExtra(PlayerActivity.EXTRA_LABEL, item.title)
                         .putExtra(PlayerActivity.EXTRA_IS_AUDIO, item.type == "Audio")
+                        .putExtra(PlayerActivity.EXTRA_IS_PHOTO, item.type == "Foto")
                 )
             }
         }
@@ -293,11 +296,23 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data, c.videoNote.thumbnail?.file)
             is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data, c.animation.thumbnail?.file)
             is TdApi.MessageDocument -> {
-                val mime = c.document.mimeType
+                val doc = c.document
+                val mime = doc.mimeType
+                val ext = doc.fileName.substringAfterLast('.', "").lowercase()
                 when {
-                    mime.startsWith("video/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Video" }, "Video", 0, c.document.minithumbnail?.data, c.document.thumbnail?.file)
-                    mime.startsWith("audio/") -> MediaEntry(c.document.document.id, c.document.fileName.ifEmpty { "Audio" }, "Audio", 0, c.document.minithumbnail?.data, c.document.thumbnail?.file)
+                    mime.startsWith("video/") || ext in VIDEO_EXT ->
+                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Video" }, "Video", 0, doc.minithumbnail?.data, doc.thumbnail?.file)
+                    mime.startsWith("audio/") || ext in AUDIO_EXT ->
+                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Audio" }, "Audio", 0, doc.minithumbnail?.data, doc.thumbnail?.file)
                     else -> null
+                }
+            }
+            is TdApi.MessagePhoto -> {
+                val sizes = c.photo.sizes
+                if (sizes.isEmpty()) null else {
+                    val largest = sizes.maxByOrNull { it.width * it.height }!!
+                    val smallest = sizes.minByOrNull { it.width * it.height }!!
+                    MediaEntry(largest.photo.id, c.caption.text.ifEmpty { "Foto" }, "Foto", 0, c.photo.minithumbnail?.data, smallest.photo)
                 }
             }
             else -> null
