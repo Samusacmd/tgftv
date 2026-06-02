@@ -1,5 +1,7 @@
 package com.telegramfiretv.player
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
@@ -9,6 +11,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import androidx.media3.common.MediaItem
@@ -27,6 +30,7 @@ class PlayerActivity : FragmentActivity() {
         const val EXTRA_FILE_ID = "file_id"
         const val EXTRA_LABEL = "label"
         const val EXTRA_IS_AUDIO = "is_audio"
+        const val EXTRA_IS_PHOTO = "is_photo"
         private var lastPlayedFileId = -1
     }
 
@@ -34,8 +38,10 @@ class PlayerActivity : FragmentActivity() {
     private var player: ExoPlayer? = null
     private lateinit var status: TextView
     private lateinit var titleOverlay: TextView
+    private lateinit var photoView: ImageView
     private var targetFileId: Int = -1
     private var isAudio = false
+    private var isPhoto = false
     private var started = false
 
     @Volatile
@@ -50,6 +56,19 @@ class PlayerActivity : FragmentActivity() {
 
         binding = ActivityPlayerBinding.inflate(layoutInflater)
         setContentView(binding.root)
+
+        photoView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            setBackgroundColor(0xFF000000.toInt())
+            visibility = View.GONE
+        }
+        addContentView(
+            photoView,
+            FrameLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+        )
 
         status = TextView(this).apply {
             setBackgroundColor(0xCC000000.toInt())
@@ -82,42 +101,47 @@ class PlayerActivity : FragmentActivity() {
 
         targetFileId = intent.getIntExtra(EXTRA_FILE_ID, -1)
         isAudio = intent.getBooleanExtra(EXTRA_IS_AUDIO, false)
+        isPhoto = intent.getBooleanExtra(EXTRA_IS_PHOTO, false)
     }
 
     override fun onStart() {
         super.onStart()
         stopped = false
-        val exo = ExoPlayer.Builder(this).build()
-        binding.playerView.player = exo
-        binding.playerView.useController = true
 
-        if (isAudio) {
-            binding.playerView.controllerShowTimeoutMs = 0
-            binding.playerView.controllerHideOnTouch = false
-            binding.playerView.controllerAutoShow = true
-            titleOverlay.text = intent.getStringExtra(EXTRA_LABEL) ?: ""
-            titleOverlay.visibility = View.VISIBLE
+        if (!isPhoto) {
+            val exo = ExoPlayer.Builder(this).build()
+            binding.playerView.player = exo
+            binding.playerView.useController = true
+            if (isAudio) {
+                binding.playerView.controllerShowTimeoutMs = 0
+                binding.playerView.controllerHideOnTouch = false
+                binding.playerView.controllerAutoShow = true
+                titleOverlay.text = intent.getStringExtra(EXTRA_LABEL) ?: ""
+                titleOverlay.visibility = View.VISIBLE
+            } else {
+                binding.playerView.controllerAutoShow = Settings.playerDim(this)
+                binding.playerView.controllerShowTimeoutMs = 2000
+            }
+            player = exo
+
+            exo.addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    runOnUiThread {
+                        status.visibility = View.VISIBLE
+                        status.text = "Errore riproduzione:\n${error.errorCodeName}\n${error.message ?: ""}"
+                    }
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
+                        Settings.clearPosition(this@PlayerActivity, targetFileId)
+                        finish()
+                    }
+                }
+            })
         } else {
-            binding.playerView.controllerAutoShow = Settings.playerDim(this)
-            binding.playerView.controllerShowTimeoutMs = 2000
+            binding.playerView.visibility = View.GONE
         }
-        player = exo
-
-        exo.addListener(object : Player.Listener {
-            override fun onPlayerError(error: PlaybackException) {
-                runOnUiThread {
-                    status.visibility = View.VISIBLE
-                    status.text = "Errore riproduzione:\n${error.errorCodeName}\n${error.message ?: ""}"
-                }
-            }
-
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                if (playbackState == Player.STATE_ENDED) {
-                    Settings.clearPosition(this@PlayerActivity, targetFileId)
-                    finish()
-                }
-            }
-        })
 
         if (targetFileId < 0) {
             setStatus("Nessun file da riprodurre.")
@@ -137,12 +161,36 @@ class PlayerActivity : FragmentActivity() {
         if (stopped) return
         val local = file.local
         if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
-            play(local.path)
+            if (isPhoto) showPhoto(local.path) else play(local.path)
         } else if (file.size > 0) {
             val pct = (100.0 * local.downloadedSize / file.size).toInt()
             setStatus("Scarico… $pct%")
         } else {
             setStatus("Scarico…")
+        }
+    }
+
+    private fun showPhoto(path: String) {
+        if (started || stopped) return
+        started = true
+        status.visibility = View.GONE
+        val bmp = decodeScaled(path, 1920, 1080) ?: run {
+            setStatus("Impossibile aprire l'immagine.")
+            return
+        }
+        photoView.setImageBitmap(bmp)
+        photoView.visibility = View.VISIBLE
+    }
+
+    private fun decodeScaled(path: String, maxW: Int, maxH: Int): Bitmap? {
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(path, bounds)
+            var sample = 1
+            while (bounds.outWidth / sample > maxW || bounds.outHeight / sample > maxH) sample *= 2
+            BitmapFactory.decodeFile(path, BitmapFactory.Options().apply { inSampleSize = sample })
+        } catch (e: Throwable) {
+            null
         }
     }
 
