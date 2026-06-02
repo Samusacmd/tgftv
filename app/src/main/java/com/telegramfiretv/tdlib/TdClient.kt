@@ -136,4 +136,12 @@ object TdClient {
     fun deleteFile(fileId: Int) {
         client?.send(TdApi.DeleteFile(fileId)) {}
     }
+
+    fun searchPublicChats(query: String, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.SearchPublicChats(query)) { handler(it) }
+    }
+
+    fun getChat(chatId: Long, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetChat(chatId)) { handler(it) }
+    }
 }
