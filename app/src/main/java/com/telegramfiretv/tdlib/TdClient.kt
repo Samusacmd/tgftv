@@ -24,7 +24,8 @@ object TdClient {
     fun removeFileListener(l: (TdApi.File) -> Unit) { fileListeners.remove(l) }
 
     val chats: MutableList<TdApi.Chat> = mutableListOf()
-    private val chatOrder = HashMap<Long, Long>()
+    private val mainOrder = HashMap<Long, Long>()
+    private val archiveOrder = HashMap<Long, Long>()
 
     fun init(context: Context) {
         if (client != null) return
@@ -33,9 +34,15 @@ object TdClient {
         client = Client.create({ obj -> onResult(obj) }, null, null)
     }
 
-    private fun mainOrder(positions: Array<TdApi.ChatPosition>): Long {
-        for (p in positions) if (p.list.constructor == TdApi.ChatListMain.CONSTRUCTOR) return p.order
-        return 0L
+    private fun applyPositions(chatId: Long, positions: Array<TdApi.ChatPosition>) {
+        mainOrder.remove(chatId)
+        archiveOrder.remove(chatId)
+        for (p in positions) {
+            when (p.list.constructor) {
+                TdApi.ChatListMain.CONSTRUCTOR -> if (p.order != 0L) mainOrder[chatId] = p.order
+                TdApi.ChatListArchive.CONSTRUCTOR -> if (p.order != 0L) archiveOrder[chatId] = p.order
+            }
+        }
     }
 
     private fun onResult(obj: TdApi.Object) {
@@ -47,15 +54,19 @@ object TdClient {
                 val chat = (obj as TdApi.UpdateNewChat).chat
                 synchronized(chats) {
                     if (chats.none { it.id == chat.id }) chats.add(chat)
-                    chatOrder[chat.id] = mainOrder(chat.positions)
+                    applyPositions(chat.id, chat.positions)
                 }
                 onChatsChanged?.invoke()
             }
 
             TdApi.UpdateChatPosition.CONSTRUCTOR -> {
                 val u = obj as TdApi.UpdateChatPosition
-                if (u.position.list.constructor == TdApi.ChatListMain.CONSTRUCTOR) {
-                    synchronized(chats) { chatOrder[u.chatId] = u.position.order }
+                val lc = u.position.list.constructor
+                if (lc == TdApi.ChatListMain.CONSTRUCTOR || lc == TdApi.ChatListArchive.CONSTRUCTOR) {
+                    synchronized(chats) {
+                        val map = if (lc == TdApi.ChatListMain.CONSTRUCTOR) mainOrder else archiveOrder
+                        if (u.position.order == 0L) map.remove(u.chatId) else map[u.chatId] = u.position.order
+                    }
                     onChatsChanged?.invoke()
                 }
             }
@@ -100,12 +111,17 @@ object TdClient {
 
     fun loadChats(limit: Int = 50) {
         client?.send(TdApi.LoadChats(TdApi.ChatListMain(), limit)) {}
+        client?.send(TdApi.LoadChats(TdApi.ChatListArchive(), limit)) {}
     }
 
-    /** Chat ordinate come nella lista principale di Telegram (più in alto = ordine maggiore). */
+    /** Chat delle tue liste (principale, poi archivio); esclude quelle scoperte dalla ricerca. */
     fun orderedChats(): List<TdApi.Chat> {
         synchronized(chats) {
-            return chats.sortedByDescending { chatOrder[it.id] ?: 0L }
+            val main = chats.filter { mainOrder.containsKey(it.id) }
+                .sortedByDescending { mainOrder[it.id] ?: 0L }
+            val arch = chats.filter { !mainOrder.containsKey(it.id) && archiveOrder.containsKey(it.id) }
+                .sortedByDescending { archiveOrder[it.id] ?: 0L }
+            return main + arch
         }
     }
 
