@@ -181,6 +181,9 @@ class SearchActivity : FragmentActivity() {
             thumb.setBackgroundColor(Color.parseColor("#223344"))
         }
         v.isFocusable = true
+        v.setOnFocusChangeListener { view, hasFocus ->
+            view.setBackgroundColor(if (hasFocus) 0xFF24445A.toInt() else 0x00000000)
+        }
         v.setOnClickListener {
             startActivity(
                 Intent(this, MediaListActivity::class.java)
