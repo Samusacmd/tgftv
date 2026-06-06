@@ -68,21 +68,27 @@ jobs:
           find app/src/main/java/org/drinkless -name '*.java'
           echo "===== jniLibs finali ====="; find app/src/main/jniLibs | sort
 
-      - name: DEBUG campi forum di TdApi
+      - name: DEBUG API bot di TdApi
         run: |
           f="app/src/main/java/org/drinkless/tdlib/TdApi.java"
-          echo "===== sottoclassi MessageTopic* ====="
-          grep -n "public static class MessageTopic" "$f" || echo "nessuna MessageTopic"
-          echo "===== occorrenze forumTopicId ====="
-          grep -n "forumTopicId" "$f" | head -30 || echo "nessun forumTopicId"
-          echo "===== campo topic nei Message (MessageTopic) ====="
-          grep -n "public MessageTopic " "$f" | head -10 || echo "nessun campo MessageTopic"
-          echo "===== funzioni Get* con Topic ====="
-          grep -n "public static class Get[A-Za-z]*Topic[A-Za-z]*" "$f" || true
-          echo "===== GetMessageThreadHistory (costruttore) ====="
-          grep -n -A 30 "public static class GetMessageThreadHistory extends" "$f" | head -40 || true
-          echo "===== GetChatHistory (costruttore) ====="
-          grep -n -A 22 "public static class GetChatHistory extends" "$f" | head -30 || true
+          echo "== SendMessage ==";            grep -n "public SendMessage(" "$f" || true
+          echo "== GetCallbackQueryAnswer =="; grep -n "public GetCallbackQueryAnswer(" "$f" || true
+          echo "== CallbackQueryPayloadData =="; grep -n "public CallbackQueryPayloadData(" "$f" || true
+          echo "== InputMessageText ==";        grep -n "public InputMessageText(" "$f" || true
+          echo "== FormattedText ==";           grep -n "public FormattedText(" "$f" || true
+          echo "== InputTextQuote / ReplyTo ==";grep -n "public static class InputMessageReplyTo" "$f" || true
+          echo "== ReplyMarkupInlineKeyboard =="; grep -n -A6 "public static class ReplyMarkupInlineKeyboard extends" "$f" | head -10 || true
+          echo "== ReplyMarkupShowKeyboard ==";  grep -n -A10 "public static class ReplyMarkupShowKeyboard extends" "$f" | head -14 || true
+          echo "== InlineKeyboardButton ==";     grep -n -A8 "public static class InlineKeyboardButton extends" "$f" | head -12 || true
+          echo "== InlineKeyboardButtonTypeCallback =="; grep -n -A6 "public static class InlineKeyboardButtonTypeCallback extends" "$f" | head -10 || true
+          echo "== InlineKeyboardButtonTypeUrl =="; grep -n -A6 "public static class InlineKeyboardButtonTypeUrl extends" "$f" | head -10 || true
+          echo "== KeyboardButton ==";           grep -n -A8 "public static class KeyboardButton extends" "$f" | head -12 || true
+          echo "== Message.replyMarkup ==";      grep -n "ReplyMarkup replyMarkup" "$f" | head || true
+          echo "== GetUserFullInfo ==";          grep -n "public GetUserFullInfo(" "$f" || true
+          echo "== UserFullInfo.botInfo ==";     grep -n "BotInfo botInfo" "$f" | head || true
+          echo "== BotInfo commands ==";         grep -n "BotCommand\[\] commands" "$f" | head || true
+          echo "== BotCommand ==";               grep -n -A6 "public static class BotCommand extends" "$f" | head -10 || true
+          echo "== ChatTypePrivate ==";          grep -n -A6 "public static class ChatTypePrivate extends" "$f" | head -8 || true
 
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
