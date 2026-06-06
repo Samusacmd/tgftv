@@ -164,7 +164,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var oldest = 0L
     private var pages = 0
     private var scanned = 0
-    private var emptyRetries = 6
+    private var lastError: String? = null
+    private var emptyRetries = 8
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -254,8 +255,13 @@ class MediaGridFragment : VerticalGridSupportFragment() {
 
     private fun loadPage(from: Long) {
         fetch(from) { result ->
-            val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             activity?.runOnUiThread {
+                if (result is TdApi.Error) {
+                    lastError = "err ${result.code}: ${result.message}"
+                    finishLoading()
+                    return@runOnUiThread
+                }
+                val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
                 if (msgs.isEmpty()) {
                     if (collected.isEmpty() && emptyRetries > 0) {
                         emptyRetries--
@@ -278,7 +284,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun finishLoading() {
         itemsAdapter.clear()
         if (collected.isEmpty()) {
-            title = if (threadId != 0L) "Argomento: 0 media su $scanned messaggi" else "Nessun video o audio trovato"
+            val base = if (threadId != 0L) "Argomento: 0 media su $scanned msg" else "Vuoto: 0 media su $scanned msg"
+            title = if (lastError != null) "$base — $lastError" else base
         } else {
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
