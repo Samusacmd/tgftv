@@ -36,7 +36,7 @@ data class MediaEntry(
     val thumbFile: TdApi.File?
 )
 
-data class TopicEntry(val threadId: Long, val name: String, val mini: ByteArray?, val thumbFile: TdApi.File?)
+data class TopicEntry(val forumTopicId: Int, val name: String, val mini: ByteArray?, val thumbFile: TdApi.File?)
 
 internal fun formatDuration(sec: Int): String {
     if (sec <= 0) return ""
@@ -101,7 +101,7 @@ class ThumbLoader {
 class MediaListActivity : FragmentActivity() {
 
     private var chatId = 0L
-    private var threadId = 0L
+    private var forumTopicId = 0
     private var titleText: String? = null
     private var mode = "grid"
 
@@ -114,7 +114,7 @@ class MediaListActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         chatId = intent.getLongExtra("chatId", 0L)
-        threadId = intent.getLongExtra("threadId", 0L)
+        forumTopicId = intent.getIntExtra("forumTopicId", 0)
         titleText = intent.getStringExtra("title")
         mode = intent.getStringExtra("mode") ?: "grid"
 
@@ -125,7 +125,7 @@ class MediaListActivity : FragmentActivity() {
             val f = MediaGridFragment().apply {
                 arguments = Bundle().apply {
                     putLong("chatId", chatId)
-                    putLong("threadId", threadId)
+                    putInt("forumTopicId", forumTopicId)
                     putString("title", titleText)
                     putString("mode", mode)
                 }
@@ -140,7 +140,7 @@ class MediaListActivity : FragmentActivity() {
             startActivity(
                 Intent(this, MediaListActivity::class.java)
                     .putExtra("chatId", chatId)
-                    .putExtra("threadId", threadId)
+                    .putExtra("forumTopicId", forumTopicId)
                     .putExtra("title", titleText)
                     .putExtra("mode", if (mode == "grid") "list" else "grid")
             )
@@ -158,7 +158,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private val collected = mutableListOf<MediaEntry>()
 
     private var chatId = 0L
-    private var threadId = 0L
+    private var forumTopicId = 0
     private var grid = true
     private var showAll = true
     private var oldest = 0L
@@ -171,7 +171,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         super.onCreate(savedInstanceState)
         thumbs.start()
         chatId = arguments?.getLong("chatId") ?: 0L
-        threadId = arguments?.getLong("threadId") ?: 0L
+        forumTopicId = arguments?.getInt("forumTopicId") ?: 0
         grid = (arguments?.getString("mode") ?: "grid") == "grid"
         showAll = Settings.mediaFilter(requireContext()) == "all"
         title = arguments?.getString("title") ?: "Contenuti"
@@ -185,7 +185,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 is TopicEntry -> startActivity(
                     Intent(requireContext(), MediaListActivity::class.java)
                         .putExtra("chatId", chatId)
-                        .putExtra("threadId", item.threadId)
+                        .putExtra("forumTopicId", item.forumTopicId)
                         .putExtra("title", item.name)
                         .putExtra("mode", if (grid) "grid" else "list")
                 )
@@ -201,7 +201,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
 
         TdClient.openChat(chatId)
 
-        if (threadId == 0L) {
+        if (forumTopicId == 0) {
             TdClient.getForumTopics(chatId) { result ->
                 val topics = (result as? TdApi.ForumTopics)?.topics?.filterNotNull().orEmpty()
                 activity?.runOnUiThread {
@@ -219,8 +219,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         val thumb = chat?.photo?.small
         val a = ArrayObjectAdapter(TopicPresenter(thumbs))
         for (t in topics) {
-            val anchor = t.lastMessage?.id ?: 0L
-            if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name, mini, thumb))
+            val fid = t.info.forumTopicId
+            if (fid != 0) a.add(TopicEntry(fid, t.info.name, mini, thumb))
         }
         if (a.size() == 0) {
             startMedia()
@@ -239,7 +239,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         adapter = itemsAdapter
 
         val cached = MediaListActivity.cache
-        if (threadId == 0L && cached != null && MediaListActivity.cacheChatId == chatId && MediaListActivity.cacheShowAll == showAll) {
+        if (forumTopicId == 0 && cached != null && MediaListActivity.cacheChatId == chatId && MediaListActivity.cacheShowAll == showAll) {
             collected.addAll(cached)
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
@@ -249,7 +249,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     }
 
     private fun fetch(from: Long, handler: (TdApi.Object) -> Unit) {
-        if (threadId != 0L) TdClient.getThreadHistory(chatId, threadId, from, 80, handler)
+        if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, from, 80, handler)
         else TdClient.getChatHistory(chatId, from, 80, handler)
     }
 
@@ -275,7 +275,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                     oldest = m.id
                 }
                 pages++
-                val maxPages = if (threadId != 0L) 40 else 15
+                val maxPages = if (forumTopicId != 0) 40 else 15
                 if (pages < maxPages && collected.size < 300) loadPage(oldest) else finishLoading()
             }
         }
@@ -284,12 +284,12 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun finishLoading() {
         itemsAdapter.clear()
         if (collected.isEmpty()) {
-            val base = if (threadId != 0L) "Argomento: 0 media su $scanned msg" else "Vuoto: 0 media su $scanned msg"
+            val base = if (forumTopicId != 0) "Argomento: 0 media su $scanned msg" else "Vuoto: 0 media su $scanned msg"
             title = if (lastError != null) "$base — $lastError" else base
         } else {
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
-            if (threadId == 0L) {
+            if (forumTopicId == 0) {
                 MediaListActivity.cache = collected.toList()
                 MediaListActivity.cacheChatId = chatId
                 MediaListActivity.cacheShowAll = showAll
