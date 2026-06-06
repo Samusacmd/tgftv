@@ -9,6 +9,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.R
+import com.telegramfiretv.tdlib.TdClient
 
 object Settings {
     private fun p(c: Context) = c.getSharedPreferences("tgftv_settings", Context.MODE_PRIVATE)
@@ -113,6 +114,26 @@ class SettingsActivity : FragmentActivity() {
         dimBtn.text = dimLabel()
         dimBtn.setOnClickListener { Settings.togglePlayerDim(this); dimBtn.text = dimLabel() }
         root.addView(dimBtn)
+
+        val refreshBtn = makeButton()
+        refreshBtn.text = "Aggiorna chat"
+        refreshBtn.setOnClickListener {
+            MediaListActivity.cache = null
+            MediaListActivity.cacheChatId = -1
+            TdClient.loadChats(200)
+            refreshBtn.text = "Aggiorna chat  ✓"
+        }
+        root.addView(refreshBtn)
+
+        val cacheBtn = makeButton()
+        cacheBtn.text = "Svuota cache"
+        cacheBtn.setOnClickListener {
+            MediaListActivity.cache = null
+            MediaListActivity.cacheChatId = -1
+            TdClient.clearCache()
+            cacheBtn.text = "Svuota cache  ✓"
+        }
+        root.addView(cacheBtn)
 
         setContentView(ScrollView(this).apply { addView(root) })
         chatViewBtn.requestFocus()
