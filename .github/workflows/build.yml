@@ -71,12 +71,18 @@ jobs:
       - name: DEBUG campi forum di TdApi
         run: |
           f="app/src/main/java/org/drinkless/tdlib/TdApi.java"
-          echo "===== occorrenze messageThreadId ====="
-          grep -n "messageThreadId" "$f" | head -40 || echo "NESSUN messageThreadId"
-          echo "===== classe ForumTopicInfo (campi) ====="
-          grep -n -A 25 "public static class ForumTopicInfo extends" "$f" | head -35 || true
-          echo "===== classe ForumTopic (campi) ====="
-          grep -n -A 18 "public static class ForumTopic extends" "$f" | head -25 || true
+          echo "===== sottoclassi MessageTopic* ====="
+          grep -n "public static class MessageTopic" "$f" || echo "nessuna MessageTopic"
+          echo "===== occorrenze forumTopicId ====="
+          grep -n "forumTopicId" "$f" | head -30 || echo "nessun forumTopicId"
+          echo "===== campo topic nei Message (MessageTopic) ====="
+          grep -n "public MessageTopic " "$f" | head -10 || echo "nessun campo MessageTopic"
+          echo "===== funzioni Get* con Topic ====="
+          grep -n "public static class Get[A-Za-z]*Topic[A-Za-z]*" "$f" || true
+          echo "===== GetMessageThreadHistory (costruttore) ====="
+          grep -n -A 30 "public static class GetMessageThreadHistory extends" "$f" | head -40 || true
+          echo "===== GetChatHistory (costruttore) ====="
+          grep -n -A 22 "public static class GetChatHistory extends" "$f" | head -30 || true
 
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
