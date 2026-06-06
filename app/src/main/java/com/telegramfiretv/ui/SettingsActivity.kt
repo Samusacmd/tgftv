@@ -7,9 +7,11 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.R
 import com.telegramfiretv.tdlib.TdClient
+import org.drinkless.tdlib.TdApi
 
 object Settings {
     private fun p(c: Context) = c.getSharedPreferences("tgftv_settings", Context.MODE_PRIVATE)
@@ -121,6 +123,7 @@ class SettingsActivity : FragmentActivity() {
             MediaListActivity.cache = null
             MediaListActivity.cacheChatId = -1
             TdClient.loadChats(200)
+            Toast.makeText(this, "Chat aggiornate", Toast.LENGTH_SHORT).show()
             refreshBtn.text = "Aggiorna chat  ✓"
         }
         root.addView(refreshBtn)
@@ -130,8 +133,14 @@ class SettingsActivity : FragmentActivity() {
         cacheBtn.setOnClickListener {
             MediaListActivity.cache = null
             MediaListActivity.cacheChatId = -1
-            TdClient.clearCache()
-            cacheBtn.text = "Svuota cache  ✓"
+            cacheBtn.text = "Svuoto…"
+            TdClient.clearCache { obj ->
+                val mb = if (obj is TdApi.StorageStatistics) obj.size / (1024 * 1024) else -1L
+                runOnUiThread {
+                    cacheBtn.text = if (mb >= 0) "Svuota cache (occupati ${mb} MB)" else "Svuota cache  ✓"
+                    Toast.makeText(this, "Cache liberata", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
         root.addView(cacheBtn)
 
