@@ -50,5 +50,9 @@
         <activity
             android:name=".ui.SearchActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.BotChatActivity"
+            android:exported="false" />
     </application>
 </manifest>
