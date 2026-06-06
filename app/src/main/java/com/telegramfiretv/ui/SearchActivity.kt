@@ -190,8 +190,12 @@ class SearchActivity : FragmentActivity() {
             view.animate().scaleX(s).scaleY(s).setDuration(120).start()
         }
         v.setOnClickListener {
-            startActivity(
+            val intent = if (chat.type.constructor == TdApi.ChatTypePrivate.CONSTRUCTOR)
+                Intent(this, BotChatActivity::class.java)
+            else
                 Intent(this, MediaListActivity::class.java)
+            startActivity(
+                intent
                     .putExtra("chatId", chat.id)
                     .putExtra("title", chat.title)
             )
