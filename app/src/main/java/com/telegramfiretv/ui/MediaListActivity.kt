@@ -189,13 +189,19 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         .putExtra("title", item.name)
                         .putExtra("mode", if (grid) "grid" else "list")
                 )
-                is MediaEntry -> startActivity(
-                    Intent(requireContext(), PlayerActivity::class.java)
-                        .putExtra(PlayerActivity.EXTRA_FILE_ID, item.fileId)
-                        .putExtra(PlayerActivity.EXTRA_LABEL, item.title)
-                        .putExtra(PlayerActivity.EXTRA_IS_AUDIO, item.type == "Audio")
-                        .putExtra(PlayerActivity.EXTRA_IS_PHOTO, item.type == "Foto")
-                )
+                is MediaEntry -> {
+                    val ids = collected.map { it.fileId }.toIntArray()
+                    val labs = collected.map { it.title }.toTypedArray()
+                    val kinds = collected.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
+                    val idx = collected.indexOf(item).coerceAtLeast(0)
+                    startActivity(
+                        Intent(requireContext(), PlayerActivity::class.java)
+                            .putExtra(PlayerActivity.EXTRA_FILE_IDS, ids)
+                            .putExtra(PlayerActivity.EXTRA_LABELS, labs)
+                            .putExtra(PlayerActivity.EXTRA_KINDS, kinds)
+                            .putExtra(PlayerActivity.EXTRA_INDEX, idx)
+                    )
+                }
             }
         }
 
