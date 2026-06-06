@@ -160,4 +160,9 @@ object TdClient {
     fun getChat(chatId: Long, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetChat(chatId)) { handler(it) }
     }
+
+    /** Libera i file scaricati gestiti da TDLib. */
+    fun clearCache(handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(TdApi.OptimizeStorage()) { handler(it) }
+    }
 }
