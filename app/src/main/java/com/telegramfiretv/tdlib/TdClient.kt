@@ -18,6 +18,7 @@ object TdClient {
     var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
     var onChatsChanged: (() -> Unit)? = null
     var onFileUpdated: ((TdApi.File) -> Unit)? = null
+    var onMessagesChanged: ((Long) -> Unit)? = null
 
     private val fileListeners = CopyOnWriteArrayList<(TdApi.File) -> Unit>()
     fun addFileListener(l: (TdApi.File) -> Unit) { fileListeners.add(l) }
@@ -76,6 +77,15 @@ object TdClient {
                 onFileUpdated?.invoke(f)
                 for (l in fileListeners) l(f)
             }
+
+            TdApi.UpdateNewMessage.CONSTRUCTOR ->
+                onMessagesChanged?.invoke((obj as TdApi.UpdateNewMessage).message.chatId)
+
+            TdApi.UpdateMessageEdited.CONSTRUCTOR ->
+                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageEdited).chatId)
+
+            TdApi.UpdateMessageContent.CONSTRUCTOR ->
+                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageContent).chatId)
         }
     }
 
@@ -184,5 +194,18 @@ object TdClient {
     /** Libera i file scaricati gestiti da TDLib. */
     fun clearCache(handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.OptimizeStorage()) { handler(it) }
+    }
+
+    fun sendText(chatId: Long, text: String) {
+        val content = TdApi.InputMessageText(TdApi.FormattedText(text, emptyArray()), null, false)
+        client?.send(TdApi.SendMessage(chatId, null, null, null, null, content)) {}
+    }
+
+    fun sendCallback(chatId: Long, messageId: Long, data: ByteArray, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetCallbackQueryAnswer(chatId, messageId, TdApi.CallbackQueryPayloadData(data))) { handler(it) }
+    }
+
+    fun getUserFullInfo(userId: Long, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetUserFullInfo(userId)) { handler(it) }
     }
 }
