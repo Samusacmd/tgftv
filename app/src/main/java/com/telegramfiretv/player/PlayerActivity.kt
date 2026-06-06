@@ -1,6 +1,5 @@
 package com.telegramfiretv.player
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -113,7 +112,6 @@ class PlayerActivity : FragmentActivity() {
             ).apply { gravity = Gravity.TOP }
         )
 
-        // Playlist (con ripiego sul singolo file per compatibilità).
         fileIds = intent.getIntArrayExtra(EXTRA_FILE_IDS) ?: intArrayOf(intent.getIntExtra(EXTRA_FILE_ID, -1))
         labels = intent.getStringArrayExtra(EXTRA_LABELS) ?: arrayOf(intent.getStringExtra(EXTRA_LABEL) ?: "")
         kinds = intent.getIntArrayExtra(EXTRA_KINDS) ?: intArrayOf(
@@ -132,18 +130,20 @@ class PlayerActivity : FragmentActivity() {
         isPhoto = kind == 2
     }
 
-    private fun goNext() { if (index < fileIds.size - 1) launchIndex(index + 1) }
-    private fun goPrev() { if (index > 0) launchIndex(index - 1) }
+    private fun goNext() { if (index < fileIds.size - 1) switchTo(index + 1) }
+    private fun goPrev() { if (index > 0) switchTo(index - 1) }
 
-    private fun launchIndex(i: Int) {
-        startActivity(
-            Intent(this, PlayerActivity::class.java)
-                .putExtra(EXTRA_FILE_IDS, fileIds)
-                .putExtra(EXTRA_LABELS, labels)
-                .putExtra(EXTRA_KINDS, kinds)
-                .putExtra(EXTRA_INDEX, i)
-        )
-        finish()
+    /** Cambia file restando nella stessa schermata (niente rilancio: evita di azzerare i callback). */
+    private fun switchTo(i: Int) {
+        player?.let {
+            if (started && it.playbackState != Player.STATE_ENDED) {
+                Settings.savePosition(this, targetFileId, it.currentPosition)
+            }
+        }
+        if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
+        index = i
+        applyCurrent()
+        startItem()
     }
 
     /** Player "ponte": dichiara a ExoPlayer che esiste precedente/successivo e li dirotta sulla nostra navigazione. */
@@ -172,8 +172,23 @@ class PlayerActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         stopped = false
+        startItem()
+    }
+
+    private fun startItem() {
+        started = false
+        photoView.visibility = View.GONE
+        photoView.setImageBitmap(null)
+        titleOverlay.visibility = View.GONE
+
+        player?.let {
+            binding.playerView.player = null
+            it.release()
+        }
+        player = null
 
         if (!isPhoto) {
+            binding.playerView.visibility = View.VISIBLE
             val exo = ExoPlayer.Builder(this).build()
             binding.playerView.player = NavPlayer(exo)
             binding.playerView.useController = true
@@ -205,6 +220,7 @@ class PlayerActivity : FragmentActivity() {
                 }
             })
         } else {
+            binding.playerView.player = null
             binding.playerView.visibility = View.GONE
         }
 
