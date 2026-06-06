@@ -1,5 +1,6 @@
 package com.telegramfiretv.player
 
+import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
@@ -7,6 +8,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
@@ -14,6 +16,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
+import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -31,6 +34,10 @@ class PlayerActivity : FragmentActivity() {
         const val EXTRA_LABEL = "label"
         const val EXTRA_IS_AUDIO = "is_audio"
         const val EXTRA_IS_PHOTO = "is_photo"
+        const val EXTRA_FILE_IDS = "file_ids"
+        const val EXTRA_LABELS = "labels"
+        const val EXTRA_KINDS = "kinds"
+        const val EXTRA_INDEX = "index"
         private var lastPlayedFileId = -1
     }
 
@@ -39,7 +46,14 @@ class PlayerActivity : FragmentActivity() {
     private lateinit var status: TextView
     private lateinit var titleOverlay: TextView
     private lateinit var photoView: ImageView
+
+    private var fileIds: IntArray = IntArray(0)
+    private var labels: Array<String> = emptyArray()
+    private var kinds: IntArray = IntArray(0)
+    private var index: Int = 0
+
     private var targetFileId: Int = -1
+    private var label: String = ""
     private var isAudio = false
     private var isPhoto = false
     private var started = false
@@ -99,9 +113,60 @@ class PlayerActivity : FragmentActivity() {
             ).apply { gravity = Gravity.TOP }
         )
 
-        targetFileId = intent.getIntExtra(EXTRA_FILE_ID, -1)
-        isAudio = intent.getBooleanExtra(EXTRA_IS_AUDIO, false)
-        isPhoto = intent.getBooleanExtra(EXTRA_IS_PHOTO, false)
+        // Playlist (con ripiego sul singolo file per compatibilità).
+        fileIds = intent.getIntArrayExtra(EXTRA_FILE_IDS) ?: intArrayOf(intent.getIntExtra(EXTRA_FILE_ID, -1))
+        labels = intent.getStringArrayExtra(EXTRA_LABELS) ?: arrayOf(intent.getStringExtra(EXTRA_LABEL) ?: "")
+        kinds = intent.getIntArrayExtra(EXTRA_KINDS) ?: intArrayOf(
+            if (intent.getBooleanExtra(EXTRA_IS_AUDIO, false)) 1
+            else if (intent.getBooleanExtra(EXTRA_IS_PHOTO, false)) 2 else 0
+        )
+        index = intent.getIntExtra(EXTRA_INDEX, 0).coerceIn(0, (fileIds.size - 1).coerceAtLeast(0))
+        applyCurrent()
+    }
+
+    private fun applyCurrent() {
+        targetFileId = fileIds.getOrElse(index) { -1 }
+        label = labels.getOrElse(index) { "" }
+        val kind = kinds.getOrElse(index) { 0 }
+        isAudio = kind == 1
+        isPhoto = kind == 2
+    }
+
+    private fun goNext() { if (index < fileIds.size - 1) launchIndex(index + 1) }
+    private fun goPrev() { if (index > 0) launchIndex(index - 1) }
+
+    private fun launchIndex(i: Int) {
+        startActivity(
+            Intent(this, PlayerActivity::class.java)
+                .putExtra(EXTRA_FILE_IDS, fileIds)
+                .putExtra(EXTRA_LABELS, labels)
+                .putExtra(EXTRA_KINDS, kinds)
+                .putExtra(EXTRA_INDEX, i)
+        )
+        finish()
+    }
+
+    /** Player "ponte": dichiara a ExoPlayer che esiste precedente/successivo e li dirotta sulla nostra navigazione. */
+    private inner class NavPlayer(p: Player) : ForwardingPlayer(p) {
+        override fun getAvailableCommands(): Player.Commands {
+            val b = super.getAvailableCommands().buildUpon()
+            if (index < fileIds.size - 1) b.add(Player.COMMAND_SEEK_TO_NEXT)
+            if (index > 0) b.add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            return b.build()
+        }
+
+        override fun isCommandAvailable(command: Int): Boolean = when (command) {
+            Player.COMMAND_SEEK_TO_NEXT -> index < fileIds.size - 1
+            Player.COMMAND_SEEK_TO_PREVIOUS -> index > 0
+            else -> super.isCommandAvailable(command)
+        }
+
+        override fun hasNextMediaItem(): Boolean = index < fileIds.size - 1
+        override fun hasPreviousMediaItem(): Boolean = index > 0
+        override fun seekToNext() { goNext() }
+        override fun seekToNextMediaItem() { goNext() }
+        override fun seekToPrevious() { goPrev() }
+        override fun seekToPreviousMediaItem() { goPrev() }
     }
 
     override fun onStart() {
@@ -110,13 +175,13 @@ class PlayerActivity : FragmentActivity() {
 
         if (!isPhoto) {
             val exo = ExoPlayer.Builder(this).build()
-            binding.playerView.player = exo
+            binding.playerView.player = NavPlayer(exo)
             binding.playerView.useController = true
             if (isAudio) {
                 binding.playerView.controllerShowTimeoutMs = 0
                 binding.playerView.controllerHideOnTouch = false
                 binding.playerView.controllerAutoShow = true
-                titleOverlay.text = intent.getStringExtra(EXTRA_LABEL) ?: ""
+                titleOverlay.text = label
                 titleOverlay.visibility = View.VISIBLE
             } else {
                 binding.playerView.controllerAutoShow = Settings.playerDim(this)
@@ -151,7 +216,7 @@ class PlayerActivity : FragmentActivity() {
         TdClient.onFileUpdated = { file ->
             if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
         }
-        setStatus("Preparo: " + (intent.getStringExtra(EXTRA_LABEL) ?: ""))
+        setStatus("Preparo: $label")
         TdClient.downloadFile(targetFileId) { obj ->
             if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
         }
@@ -221,6 +286,20 @@ class PlayerActivity : FragmentActivity() {
         status.text = text
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        when (keyCode) {
+            KeyEvent.KEYCODE_MEDIA_NEXT -> { goNext(); return true }
+            KeyEvent.KEYCODE_MEDIA_PREVIOUS -> { goPrev(); return true }
+        }
+        if (isPhoto) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_RIGHT -> { goNext(); return true }
+                KeyEvent.KEYCODE_DPAD_LEFT -> { goPrev(); return true }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onStop() {
         super.onStop()
         stopped = true
@@ -233,6 +312,7 @@ class PlayerActivity : FragmentActivity() {
         }
         TdClient.onFileUpdated = null
         if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
+        binding.playerView.player = null
         player?.release()
         player = null
         started = false
