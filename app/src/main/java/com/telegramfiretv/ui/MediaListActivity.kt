@@ -219,8 +219,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         val thumb = chat?.photo?.small
         val a = ArrayObjectAdapter(TopicPresenter(thumbs))
         for (t in topics) {
-            val tid = t.info.messageThreadId
-            if (tid != 0L) a.add(TopicEntry(tid, t.info.name, mini, thumb))
+            val anchor = t.lastMessage?.id ?: 0L
+            if (anchor != 0L) a.add(TopicEntry(anchor, t.info.name, mini, thumb))
         }
         if (a.size() == 0) {
             startMedia()
