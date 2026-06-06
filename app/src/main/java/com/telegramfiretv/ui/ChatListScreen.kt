@@ -36,8 +36,12 @@ class ChatGridFragment : VerticalGridSupportFragment() {
 
         setOnItemViewClickedListener { _, item, _, _ ->
             val chat = item as TdApi.Chat
-            startActivity(
+            val intent = if (chat.type.constructor == TdApi.ChatTypePrivate.CONSTRUCTOR)
+                Intent(requireContext(), BotChatActivity::class.java)
+            else
                 Intent(requireContext(), MediaListActivity::class.java)
+            startActivity(
+                intent
                     .putExtra("chatId", chat.id)
                     .putExtra("title", chat.title)
             )
