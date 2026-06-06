@@ -163,7 +163,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var showAll = true
     private var oldest = 0L
     private var pages = 0
-    private var emptyRetries = 3
+    private var scanned = 0
+    private var emptyRetries = 6
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -258,16 +259,18 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 if (msgs.isEmpty()) {
                     if (collected.isEmpty() && emptyRetries > 0) {
                         emptyRetries--
-                        view?.postDelayed({ loadPage(0L) }, 400)
+                        view?.postDelayed({ loadPage(0L) }, 600)
                     } else finishLoading()
                     return@runOnUiThread
                 }
+                scanned += msgs.size
                 for (m in msgs) {
                     extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
                     oldest = m.id
                 }
                 pages++
-                if (pages < 15 && collected.size < 200) loadPage(oldest) else finishLoading()
+                val maxPages = if (threadId != 0L) 40 else 15
+                if (pages < maxPages && collected.size < 300) loadPage(oldest) else finishLoading()
             }
         }
     }
@@ -275,7 +278,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun finishLoading() {
         itemsAdapter.clear()
         if (collected.isEmpty()) {
-            title = if (threadId != 0L) "Nessun contenuto in questo argomento" else "Nessun video o audio trovato"
+            title = if (threadId != 0L) "Argomento: 0 media su $scanned messaggi" else "Nessun video o audio trovato"
         } else {
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
