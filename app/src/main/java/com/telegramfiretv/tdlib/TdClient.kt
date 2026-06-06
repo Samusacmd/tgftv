@@ -125,6 +125,22 @@ object TdClient {
         }
     }
 
+    /** Solo le chat della lista principale. */
+    fun orderedMainChats(): List<TdApi.Chat> {
+        synchronized(chats) {
+            return chats.filter { mainOrder.containsKey(it.id) }
+                .sortedByDescending { mainOrder[it.id] ?: 0L }
+        }
+    }
+
+    /** Solo le chat archiviate. */
+    fun orderedArchiveChats(): List<TdApi.Chat> {
+        synchronized(chats) {
+            return chats.filter { archiveOrder.containsKey(it.id) && !mainOrder.containsKey(it.id) }
+                .sortedByDescending { archiveOrder[it.id] ?: 0L }
+        }
+    }
+
     fun openChat(chatId: Long) {
         client?.send(TdApi.OpenChat(chatId)) {}
     }
