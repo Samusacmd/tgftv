@@ -25,7 +25,7 @@ class ChatGridFragment : VerticalGridSupportFragment() {
         grid = Settings.chatViewMode(requireContext()) == "grid"
         title = "Telegram Fire TV"
 
-        gridPresenter = VerticalGridPresenter().apply {
+        gridPresenter = VerticalGridPresenter(FocusHighlight.ZOOM_FACTOR_MEDIUM, false).apply {
             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1
         }
         val presenter: Presenter = if (grid) CardPresenter(thumbs) else ListChatPresenter(thumbs)
