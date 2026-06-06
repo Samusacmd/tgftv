@@ -18,12 +18,14 @@ class ChatGridFragment : VerticalGridSupportFragment() {
     private val thumbs = ThumbLoader()
     private lateinit var chatsAdapter: ArrayObjectAdapter
     private var grid = false
+    private var listName = "main"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         thumbs.start()
         grid = Settings.chatViewMode(requireContext()) == "grid"
-        title = "Telegram Fire TV"
+        listName = arguments?.getString("list") ?: "main"
+        title = null
 
         gridPresenter = VerticalGridPresenter(FocusHighlight.ZOOM_FACTOR_MEDIUM, false).apply {
             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1
@@ -41,10 +43,6 @@ class ChatGridFragment : VerticalGridSupportFragment() {
             )
         }
 
-        setOnSearchClickedListener {
-            startActivity(Intent(requireContext(), SearchActivity::class.java))
-        }
-
         TdClient.onChatsChanged = { activity?.runOnUiThread { refresh() } }
         TdClient.loadChats(200)
         refresh()
@@ -52,7 +50,8 @@ class ChatGridFragment : VerticalGridSupportFragment() {
 
     private fun refresh() {
         chatsAdapter.clear()
-        chatsAdapter.addAll(0, TdClient.orderedChats())
+        val list = if (listName == "archive") TdClient.orderedArchiveChats() else TdClient.orderedMainChats()
+        chatsAdapter.addAll(0, list)
     }
 
     override fun onDestroy() {
