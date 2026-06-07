@@ -137,8 +137,24 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
-    private fun render(msgs: List<TdApi.Message>) {
+    private fun loadOlder() {
+        val oldestId = lastMessages.lastOrNull()?.id ?: return
+        TdClient.getChatHistory(chatId, oldestId, 25) { result ->
+            val more = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+            runOnUiThread {
+                if (more.isNotEmpty()) {
+                    lastMessages = lastMessages + more
+                    render(lastMessages, scrollBottom = false)
+                } else {
+                    Toast.makeText(this, "Nessun messaggio precedente", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    private fun render(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
         messagesBox.removeAllViews()
+        addRow("↑  Messaggi precedenti", true) { loadOlder() }
         // Raccolgo i media della conversazione per la riproduzione con precedente/successivo.
         val mediaRefs = ArrayList<Triple<Int, Int, String>>()
         for (m in msgs.reversed()) {
@@ -156,7 +172,7 @@ class BotChatActivity : FragmentActivity() {
                 else addRow(text, false, null)
             }
         }
-        messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
+        if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
 
         buttonsBox.removeAllViews()
 
@@ -218,6 +234,11 @@ class BotChatActivity : FragmentActivity() {
     }
 
     private fun openLink(raw: String) {
+        val link = normalizeLink(raw)
+        if (link.contains("t.me/+") || link.contains("t.me/joinchat/")) {
+            openInvite(link)
+            return
+        }
         val u = extractUsername(raw)
         if (u == null) {
             Toast.makeText(this, "Link non apribile: $raw", Toast.LENGTH_LONG).show()
@@ -228,6 +249,32 @@ class BotChatActivity : FragmentActivity() {
             runOnUiThread {
                 if (obj is TdApi.Chat) openChat(obj)
                 else Toast.makeText(this, "Non trovato: @$u", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun normalizeLink(raw: String): String {
+        var s = raw.trim()
+        val i = s.indexOf("t.me/")
+        if (i > 0) s = s.substring(i)
+        if (s.startsWith("t.me/")) s = "https://$s"
+        return s
+    }
+
+    private fun openInvite(link: String) {
+        Toast.makeText(this, "Apro invito…", Toast.LENGTH_SHORT).show()
+        TdClient.checkInviteLink(link) { obj ->
+            runOnUiThread {
+                if (obj is TdApi.ChatInviteLinkInfo && obj.chatId != 0L) {
+                    TdClient.getChat(obj.chatId) { c -> runOnUiThread { if (c is TdApi.Chat) openChat(c) } }
+                } else {
+                    TdClient.joinByInviteLink(link) { j ->
+                        runOnUiThread {
+                            if (j is TdApi.Chat) openChat(j)
+                            else Toast.makeText(this, "Impossibile aprire l'invito", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }
             }
         }
     }
