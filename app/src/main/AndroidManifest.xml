@@ -54,5 +54,9 @@
         <activity
             android:name=".ui.BotChatActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.WriteSettingsActivity"
+            android:exported="false" />
     </application>
 </manifest>
