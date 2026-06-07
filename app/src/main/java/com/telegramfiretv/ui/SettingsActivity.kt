@@ -50,6 +50,12 @@ object Settings {
         p(c).edit().putString("media_filter", n).apply(); return n
     }
 
+    fun writeFlag(c: Context, key: String, def: Boolean): Boolean = p(c).getBoolean("write_$key", def)
+    fun toggleWriteFlag(c: Context, key: String, def: Boolean): Boolean {
+        val n = !writeFlag(c, key, def)
+        p(c).edit().putBoolean("write_$key", n).apply(); return n
+    }
+
     fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
     fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
     fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
@@ -143,6 +149,13 @@ class SettingsActivity : FragmentActivity() {
             }
         }
         root.addView(cacheBtn)
+
+        val writeBtn = makeButton()
+        writeBtn.text = "Abilita scrittura  ▸"
+        writeBtn.setOnClickListener {
+            startActivity(android.content.Intent(this, WriteSettingsActivity::class.java))
+        }
+        root.addView(writeBtn)
 
         setContentView(ScrollView(this).apply { addView(root) })
         chatViewBtn.requestFocus()

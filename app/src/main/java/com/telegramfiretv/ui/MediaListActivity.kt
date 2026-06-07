@@ -176,20 +176,6 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         showAll = Settings.mediaFilter(requireContext()) == "all"
         title = arguments?.getString("title") ?: "Contenuti"
 
-        if (forumTopicId == 0) {
-            val chat = TdClient.chats.firstOrNull { it.id == chatId }
-            val isChannel = (chat?.type as? TdApi.ChatTypeSupergroup)?.isChannel == true
-            if (!isChannel) {
-                setOnSearchClickedListener {
-                    startActivity(
-                        Intent(requireContext(), BotChatActivity::class.java)
-                            .putExtra("chatId", chatId)
-                            .putExtra("title", arguments?.getString("title"))
-                    )
-                }
-            }
-        }
-
         gridPresenter = VerticalGridPresenter().apply {
             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1
         }
@@ -225,11 +211,32 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             TdClient.getForumTopics(chatId) { result ->
                 val topics = (result as? TdApi.ForumTopics)?.topics?.filterNotNull().orEmpty()
                 activity?.runOnUiThread {
+                    maybeShowWriteOrb(topics.isNotEmpty())
                     if (topics.isNotEmpty()) showTopics(topics) else startMedia()
                 }
             }
         } else {
             startMedia()
+        }
+    }
+
+    private fun maybeShowWriteOrb(isForum: Boolean) {
+        val ctx = context ?: return
+        val chat = TdClient.chats.firstOrNull { it.id == chatId }
+        val isChannel = (chat?.type as? TdApi.ChatTypeSupergroup)?.isChannel == true
+        val enabled = when {
+            isChannel -> Settings.writeFlag(ctx, "admin_channels", false)
+            isForum -> Settings.writeFlag(ctx, "forum", true)
+            else -> Settings.writeFlag(ctx, "groups", true)
+        }
+        if (enabled) {
+            setOnSearchClickedListener {
+                startActivity(
+                    Intent(ctx, BotChatActivity::class.java)
+                        .putExtra("chatId", chatId)
+                        .putExtra("title", arguments?.getString("title"))
+                )
+            }
         }
     }
 

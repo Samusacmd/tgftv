@@ -33,6 +33,7 @@ class BotChatActivity : FragmentActivity() {
     private lateinit var messagesScroll: ScrollView
     private lateinit var buttonsBox: LinearLayout
     private lateinit var input: EditText
+    private lateinit var inputRow: LinearLayout
 
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { loadAndRender() }
@@ -68,6 +69,7 @@ class BotChatActivity : FragmentActivity() {
         ).apply { bottomMargin = 12 })
 
         val inputRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        this.inputRow = inputRow
         input = EditText(this).apply {
             hint = "Scrivi un messaggio…"
             setHintTextColor(0xFF7A8893.toInt())
@@ -85,6 +87,13 @@ class BotChatActivity : FragmentActivity() {
         ))
 
         setContentView(root)
+
+        // La scrittura rispetta le impostazioni "Abilita scrittura".
+        val chat0 = TdClient.chats.firstOrNull { it.id == chatId }
+        val isPrivate = chat0?.type is TdApi.ChatTypePrivate
+        // Per i gruppi questa schermata si apre solo dall'icona già autorizzata -> input visibile.
+        // Per le chat private decidiamo dopo aver capito se è un bot o una persona.
+        inputRow.visibility = if (isPrivate) View.GONE else View.VISIBLE
 
         TdClient.openChat(chatId)
         TdClient.onMessagesChanged = { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
@@ -115,6 +124,9 @@ class BotChatActivity : FragmentActivity() {
                     runOnUiThread {
                         isBot = info != null
                         botCommands = info?.commands?.toList() ?: emptyList()
+                        val canWrite = if (isBot) Settings.writeFlag(this, "bots", true)
+                                       else Settings.writeFlag(this, "private", true)
+                        inputRow.visibility = if (canWrite) View.VISIBLE else View.GONE
                         render(lastMessages)
                     }
                 }
@@ -167,9 +179,13 @@ class BotChatActivity : FragmentActivity() {
             } else {
                 val text = messageText(m)
                 if (text.isBlank()) continue
+                val cmd = findCommand(text)
                 val link = findLink(text)
-                if (link != null) addRow(text, true) { openLink(link) }
-                else addRow(text, false, null)
+                when {
+                    cmd != null -> addRow(text, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
+                    link != null -> addRow(text, true) { openLink(link) }
+                    else -> addRow(text, false, null)
+                }
             }
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
@@ -303,6 +319,11 @@ class BotChatActivity : FragmentActivity() {
         Regex("(https?://)?t\\.me/\\S+").find(text)?.let { return it.value }
         Regex("@[A-Za-z0-9_]{4,}").find(text)?.let { return it.value }
         return null
+    }
+
+    private fun findCommand(text: String): String? {
+        val m = Regex("(?:^|\\s)(/[A-Za-z0-9_]{1,64})").find(text) ?: return null
+        return m.groupValues[1]
     }
 
     private fun mediaOf(m: TdApi.Message): Triple<Int, Int, String>? {
