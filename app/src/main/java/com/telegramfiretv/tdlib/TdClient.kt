@@ -212,4 +212,12 @@ object TdClient {
     fun searchPublicChat(username: String, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.SearchPublicChat(username)) { handler(it) }
     }
+
+    fun checkInviteLink(link: String, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.CheckChatInviteLink(link)) { handler(it) }
+    }
+
+    fun joinByInviteLink(link: String, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.JoinChatByInviteLink(link)) { handler(it) }
+    }
 }
