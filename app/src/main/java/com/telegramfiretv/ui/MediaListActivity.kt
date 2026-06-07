@@ -244,8 +244,13 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
         if (writeOrb) {
-            view.findViewById<SearchOrbView>(androidx.leanback.R.id.title_orb)
-                ?.setOrbIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_compose))
+            val orb = view.findViewById<SearchOrbView>(androidx.leanback.R.id.title_orb)
+            val src = ContextCompat.getDrawable(requireContext(), R.drawable.ic_compose) as? BitmapDrawable
+            if (orb != null && src != null) {
+                val px = (26 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
+                val scaled = Bitmap.createScaledBitmap(src.bitmap, px, px, true)
+                orb.setOrbIcon(BitmapDrawable(resources, scaled))
+            }
         }
     }
 
