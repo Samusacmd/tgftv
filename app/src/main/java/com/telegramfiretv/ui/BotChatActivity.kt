@@ -29,6 +29,7 @@ class BotChatActivity : FragmentActivity() {
     private var botCommands: List<TdApi.BotCommand> = emptyList()
     private var lastMessages: List<TdApi.Message> = emptyList()
     private var forumTopicId = 0
+    private var isGroupChat = false
 
     private lateinit var messagesBox: LinearLayout
     private lateinit var messagesScroll: ScrollView
@@ -93,6 +94,7 @@ class BotChatActivity : FragmentActivity() {
         // La scrittura rispetta le impostazioni "Abilita scrittura".
         val chat0 = TdClient.chats.firstOrNull { it.id == chatId }
         val isPrivate = chat0?.type is TdApi.ChatTypePrivate
+        isGroupChat = chat0?.type is TdApi.ChatTypeSupergroup || chat0?.type is TdApi.ChatTypeBasicGroup
         // Per i gruppi questa schermata si apre solo dall'icona già autorizzata -> input visibile.
         // Per le chat private decidiamo dopo aver capito se è un bot o una persona.
         inputRow.visibility = if (isPrivate) View.GONE else View.VISIBLE
@@ -129,7 +131,7 @@ class BotChatActivity : FragmentActivity() {
                         val canWrite = if (isBot) Settings.writeFlag(this, "bots", true)
                                        else Settings.writeFlag(this, "private", true)
                         inputRow.visibility = if (canWrite) View.VISIBLE else View.GONE
-                        render(lastMessages)
+                        renderWithSenders(lastMessages, true)
                     }
                 }
             }
@@ -146,7 +148,7 @@ class BotChatActivity : FragmentActivity() {
                     return@runOnUiThread
                 }
                 lastMessages = msgs
-                render(msgs)
+                renderWithSenders(msgs, true)
             }
         }
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, 0L, 25, cb)
@@ -160,7 +162,7 @@ class BotChatActivity : FragmentActivity() {
             runOnUiThread {
                 if (more.isNotEmpty()) {
                     lastMessages = lastMessages + more
-                    render(lastMessages, scrollBottom = false)
+                    renderWithSenders(lastMessages, false)
                 } else {
                     Toast.makeText(this, "Nessun messaggio precedente", Toast.LENGTH_SHORT).show()
                 }
@@ -175,22 +177,28 @@ class BotChatActivity : FragmentActivity() {
         addRow("↑  Messaggi precedenti", true) { loadOlder() }
         // Raccolgo i media della conversazione per la riproduzione con precedente/successivo.
         val mediaRefs = ArrayList<Triple<Int, Int, String>>()
+        var prevSender: String? = null
         for (m in msgs.reversed()) {
             val media = mediaOf(m)
+            val text = if (media == null) messageText(m) else null
+            if (media == null && text!!.isBlank()) continue
+            if (isGroupChat) {
+                val sender = senderLabel(m)
+                if (sender != prevSender) { addSenderHeader(sender); prevSender = sender }
+            }
             if (media != null) {
                 val idx = mediaRefs.size
                 mediaRefs.add(media)
                 val icon = if (media.second == 2) "🖼" else "▶"
                 addRow("$icon  ${media.third}", true) { playMediaAt(mediaRefs.toList(), idx) }
             } else {
-                val text = messageText(m)
-                if (text.isBlank()) continue
-                val cmd = findCommand(text)
-                val link = findLink(text)
+                val t = text!!
+                val cmd = findCommand(t)
+                val link = findLink(t)
                 when {
-                    cmd != null -> addRow(text, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
-                    link != null -> addRow(text, true) { openLink(link) }
-                    else -> addRow(text, false, null)
+                    cmd != null -> addRow(t, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
+                    link != null -> addRow(t, true) { openLink(link) }
+                    else -> addRow(t, false, null)
                 }
             }
         }
@@ -228,6 +236,45 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
+    private fun renderWithSenders(msgs: List<TdApi.Message>, scrollBottom: Boolean) {
+        if (!isGroupChat) { render(msgs, scrollBottom); return }
+        val missing = msgs.mapNotNull { (it.senderId as? TdApi.MessageSenderUser)?.userId }
+            .filter { TdClient.users[it] == null }.distinct()
+        if (missing.isEmpty()) { render(msgs, scrollBottom); return }
+        var remaining = missing.size
+        var done = false
+        for (id in missing) {
+            TdClient.getUser(id) {
+                runOnUiThread {
+                    remaining--
+                    if (remaining <= 0 && !done) { done = true; render(msgs, scrollBottom) }
+                }
+            }
+        }
+    }
+
+    private fun senderLabel(m: TdApi.Message): String {
+        return when (val s = m.senderId) {
+            is TdApi.MessageSenderUser -> {
+                val u = TdClient.users[s.userId]
+                if (u != null) (u.firstName + " " + u.lastName).trim().ifEmpty { "Utente" } else "Utente"
+            }
+            is TdApi.MessageSenderChat -> TdClient.chats.firstOrNull { it.id == s.chatId }?.title ?: "Canale"
+            else -> "Sconosciuto"
+        }
+    }
+
+    private fun addSenderHeader(name: String) {
+        val tv = TextView(this).apply {
+            text = name
+            setTextColor(0xFF4FC3F7.toInt())
+            textSize = 13f
+            setPadding(16, 18, 16, 0)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        messagesBox.addView(tv)
+    }
+
     private fun playMediaAt(refs: List<Triple<Int, Int, String>>, idx: Int) {
         startActivity(
             Intent(this, PlayerActivity::class.java)
@@ -257,6 +304,21 @@ class BotChatActivity : FragmentActivity() {
 
     private fun openLink(raw: String) {
         val link = normalizeLink(raw)
+        val cIdx = link.indexOf("t.me/c/")
+        if (cIdx >= 0) {
+            val sg = link.substring(cIdx + 7).takeWhile { it.isDigit() }.toLongOrNull()
+            if (sg != null) {
+                val realChatId = -(1_000_000_000_000L + sg)
+                Toast.makeText(this, "Apro chat…", Toast.LENGTH_SHORT).show()
+                TdClient.getChat(realChatId) { obj ->
+                    runOnUiThread {
+                        if (obj is TdApi.Chat) openChat(obj)
+                        else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
+                    }
+                }
+                return
+            }
+        }
         if (link.contains("t.me/+") || link.contains("t.me/joinchat/")) {
             openInvite(link)
             return
@@ -360,6 +422,7 @@ class BotChatActivity : FragmentActivity() {
     private fun messageText(m: TdApi.Message): String {
         return when (val c = m.content) {
             is TdApi.MessageText -> c.text.text
+            is TdApi.MessageAnimatedEmoji -> c.emoji
             is TdApi.MessageSticker -> "[sticker]"
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
         }

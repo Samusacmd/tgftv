@@ -18,6 +18,7 @@ import android.widget.ImageView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
+import androidx.core.content.ContextCompat
 import androidx.leanback.app.VerticalGridSupportFragment
 import androidx.leanback.widget.*
 import com.telegramfiretv.R
@@ -166,6 +167,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var scanned = 0
     private var lastError: String? = null
     private var emptyRetries = 8
+    private var writeOrb = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -185,6 +187,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             else -> Settings.writeFlag(ctx, "groups", true) || Settings.writeFlag(ctx, "forum", true)
         }
         if (canWrite) {
+            writeOrb = true
             setOnSearchClickedListener {
                 startActivity(
                     Intent(ctx, BotChatActivity::class.java)
@@ -235,6 +238,14 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             }
         } else {
             startMedia()
+        }
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        if (writeOrb) {
+            view.findViewById<SearchOrbView>(androidx.leanback.R.id.title_orb)
+                ?.setOrbIcon(ContextCompat.getDrawable(requireContext(), R.drawable.ic_compose))
         }
     }
 
