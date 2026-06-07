@@ -28,6 +28,7 @@ class BotChatActivity : FragmentActivity() {
     private var isBot = false
     private var botCommands: List<TdApi.BotCommand> = emptyList()
     private var lastMessages: List<TdApi.Message> = emptyList()
+    private var forumTopicId = 0
 
     private lateinit var messagesBox: LinearLayout
     private lateinit var messagesScroll: ScrollView
@@ -42,6 +43,7 @@ class BotChatActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         chatId = intent.getLongExtra("chatId", 0L)
+        forumTopicId = intent.getIntExtra("forumTopicId", 0)
         titleText = intent.getStringExtra("title")
 
         val root = LinearLayout(this).apply {
@@ -104,7 +106,7 @@ class BotChatActivity : FragmentActivity() {
     private fun sendInput() {
         val t = input.text.toString().trim()
         if (t.isEmpty()) return
-        TdClient.sendText(chatId, t)
+        TdClient.sendText(chatId, t, forumTopicId)
         input.setText("")
         scheduleRefresh()
     }
@@ -135,7 +137,7 @@ class BotChatActivity : FragmentActivity() {
     }
 
     private fun loadAndRender() {
-        TdClient.getChatHistory(chatId, 0L, 25) { result ->
+        val cb: (TdApi.Object) -> Unit = { result ->
             val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             runOnUiThread {
                 if (msgs.isEmpty() && emptyRetries > 0) {
@@ -147,11 +149,13 @@ class BotChatActivity : FragmentActivity() {
                 render(msgs)
             }
         }
+        if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, 0L, 25, cb)
+        else TdClient.getChatHistory(chatId, 0L, 25, cb)
     }
 
     private fun loadOlder() {
         val oldestId = lastMessages.lastOrNull()?.id ?: return
-        TdClient.getChatHistory(chatId, oldestId, 25) { result ->
+        val cb: (TdApi.Object) -> Unit = { result ->
             val more = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             runOnUiThread {
                 if (more.isNotEmpty()) {
@@ -162,6 +166,8 @@ class BotChatActivity : FragmentActivity() {
                 }
             }
         }
+        if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, oldestId, 25, cb)
+        else TdClient.getChatHistory(chatId, oldestId, 25, cb)
     }
 
     private fun render(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
