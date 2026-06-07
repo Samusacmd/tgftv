@@ -250,6 +250,9 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 val px = (26 * resources.displayMetrics.density).toInt().coerceAtLeast(1)
                 val scaled = Bitmap.createScaledBitmap(src.bitmap, px, px, true)
                 orb.setOrbIcon(BitmapDrawable(resources, scaled))
+                orb.setOrbColors(SearchOrbView.Colors(0, 0, 0))
+                orb.elevation = 0f
+                orb.enableOrbColorAnimation(false)
             }
         }
     }
