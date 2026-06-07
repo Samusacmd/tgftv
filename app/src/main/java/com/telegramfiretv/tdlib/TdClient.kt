@@ -25,6 +25,7 @@ object TdClient {
     fun removeFileListener(l: (TdApi.File) -> Unit) { fileListeners.remove(l) }
 
     val chats: MutableList<TdApi.Chat> = mutableListOf()
+    val users = HashMap<Long, TdApi.User>()
     private val mainOrder = HashMap<Long, Long>()
     private val archiveOrder = HashMap<Long, Long>()
 
@@ -76,6 +77,11 @@ object TdClient {
                 val f = (obj as TdApi.UpdateFile).file
                 onFileUpdated?.invoke(f)
                 for (l in fileListeners) l(f)
+            }
+
+            TdApi.UpdateUser.CONSTRUCTOR -> {
+                val u = (obj as TdApi.UpdateUser).user
+                synchronized(users) { users[u.id] = u }
             }
 
             TdApi.UpdateNewMessage.CONSTRUCTOR ->
@@ -208,6 +214,15 @@ object TdClient {
 
     fun getUserFullInfo(userId: Long, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetUserFullInfo(userId)) { handler(it) }
+    }
+
+    fun getUser(userId: Long, handler: (TdApi.Object) -> Unit) {
+        val cached = synchronized(users) { users[userId] }
+        if (cached != null) { handler(cached); return }
+        client?.send(TdApi.GetUser(userId)) { obj ->
+            if (obj is TdApi.User) synchronized(users) { users[obj.id] = obj }
+            handler(obj)
+        }
     }
 
     fun searchPublicChat(username: String, handler: (TdApi.Object) -> Unit) {
