@@ -196,9 +196,10 @@ object TdClient {
         client?.send(TdApi.OptimizeStorage()) { handler(it) }
     }
 
-    fun sendText(chatId: Long, text: String) {
+    fun sendText(chatId: Long, text: String, forumTopicId: Int = 0) {
+        val topic: TdApi.MessageTopic? = if (forumTopicId != 0) TdApi.MessageTopicForum(forumTopicId) else null
         val content = TdApi.InputMessageText(TdApi.FormattedText(text, emptyArray()), null, false)
-        client?.send(TdApi.SendMessage(chatId, null, null, null, null, content)) {}
+        client?.send(TdApi.SendMessage(chatId, topic, null, null, null, content)) {}
     }
 
     fun sendCallback(chatId: Long, messageId: Long, data: ByteArray, handler: (TdApi.Object) -> Unit) {
