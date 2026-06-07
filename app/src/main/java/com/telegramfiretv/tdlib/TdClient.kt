@@ -208,4 +208,8 @@ object TdClient {
     fun getUserFullInfo(userId: Long, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetUserFullInfo(userId)) { handler(it) }
     }
+
+    fun searchPublicChat(username: String, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.SearchPublicChat(username)) { handler(it) }
+    }
 }
