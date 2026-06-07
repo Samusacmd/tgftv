@@ -176,6 +176,20 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         showAll = Settings.mediaFilter(requireContext()) == "all"
         title = arguments?.getString("title") ?: "Contenuti"
 
+        if (forumTopicId == 0) {
+            val chat = TdClient.chats.firstOrNull { it.id == chatId }
+            val isChannel = (chat?.type as? TdApi.ChatTypeSupergroup)?.isChannel == true
+            if (!isChannel) {
+                setOnSearchClickedListener {
+                    startActivity(
+                        Intent(requireContext(), BotChatActivity::class.java)
+                            .putExtra("chatId", chatId)
+                            .putExtra("title", arguments?.getString("title"))
+                    )
+                }
+            }
+        }
+
         gridPresenter = VerticalGridPresenter().apply {
             numberOfColumns = if (grid) Settings.gridColumns(requireContext()) else 1
         }
