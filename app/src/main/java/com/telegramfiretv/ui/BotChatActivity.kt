@@ -1,6 +1,8 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.BitmapFactory
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -8,15 +10,21 @@ import android.text.InputType
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import com.airbnb.lottie.LottieAnimationView
+import com.airbnb.lottie.LottieCompositionFactory
 import com.telegramfiretv.R
 import com.telegramfiretv.player.PlayerActivity
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
+import java.io.File
+import java.util.zip.GZIPInputStream
 
 private val VIDEO_EXT = setOf("mp4", "mov", "mkv", "avi", "webm", "m4v", "3gp", "ts", "flv", "mpg", "mpeg", "wmv")
 private val AUDIO_EXT = setOf("mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "wma")
@@ -181,7 +189,7 @@ class BotChatActivity : FragmentActivity() {
         for (m in msgs.reversed()) {
             val media = mediaOf(m)
             val text = if (media == null) messageText(m) else null
-            if (media == null && text!!.isBlank()) continue
+            if (media == null && (text == null || text.isBlank())) continue
             if (isGroupChat) {
                 val sender = senderLabel(m)
                 if (sender != prevSender) { addSenderHeader(sender); prevSender = sender }
@@ -191,6 +199,9 @@ class BotChatActivity : FragmentActivity() {
                 mediaRefs.add(media)
                 val icon = if (media.second == 2) "🖼" else "▶"
                 addRow("$icon  ${media.third}", true) { playMediaAt(mediaRefs.toList(), idx) }
+            } else if ((m.content as? TdApi.MessageSticker)?.sticker?.format is TdApi.StickerFormatTgs) {
+                val sticker = (m.content as TdApi.MessageSticker).sticker
+                addStickerView(sticker.sticker.id, sticker.sticker.local.path)
             } else {
                 val t = text!!
                 val cmd = findCommand(t)
@@ -200,6 +211,9 @@ class BotChatActivity : FragmentActivity() {
                     link != null -> addRow(t, true) { openLink(link) }
                     else -> addRow(t, false, null)
                 }
+                // Link preview da WebPage allegata al messaggio
+                val wp = (m.content as? TdApi.MessageText)?.webPage
+                if (wp != null) addLinkPreview(wp)
             }
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
@@ -419,12 +433,124 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
-    private fun messageText(m: TdApi.Message): String {
+    private fun messageText(m: TdApi.Message): String? {
         return when (val c = m.content) {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessageAnimatedEmoji -> c.emoji
-            is TdApi.MessageSticker -> "[sticker]"
+            is TdApi.MessageSticker -> if (c.sticker.format is TdApi.StickerFormatTgs) null else "[sticker]"
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
+        }
+    }
+
+    private fun addLinkPreview(wp: TdApi.WebPage) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val bg = GradientDrawable().apply {
+                setColor(0xFF1A2A35.toInt())
+                cornerRadius = 12f
+                setStroke(3, 0xFF2E6E9E.toInt())
+            }
+            background = bg
+            setPadding(20, 16, 20, 16)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.topMargin = 6; lp.bottomMargin = 6
+            layoutParams = lp
+        }
+        val siteName = wp.siteName.ifEmpty { wp.url }
+        if (siteName.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = siteName
+                setTextColor(0xFF4FC3F7.toInt())
+                textSize = 12f
+                setPadding(0, 0, 0, 4)
+            })
+        }
+        if (wp.title.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = wp.title
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 15f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 4)
+            })
+        }
+        if (wp.description.text.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = wp.description.text
+                setTextColor(0xFFB0BEC5.toInt())
+                textSize = 13f
+                maxLines = 3
+            })
+        }
+        // Immagine anteprima
+        val thumb = wp.photo?.sizes?.maxByOrNull { it.width * it.height }
+        if (thumb != null) {
+            val iv = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 200)
+                lp.topMargin = 10
+                layoutParams = lp
+            }
+            card.addView(iv)
+            val localPath = thumb.photo.local.path
+            if (localPath.isNotEmpty()) {
+                val bmp = BitmapFactory.decodeFile(localPath)
+                if (bmp != null) iv.setImageBitmap(bmp)
+            } else {
+                TdClient.downloadFilePath(thumb.photo.id) { path ->
+                    if (path.isNotEmpty()) {
+                        val bmp = BitmapFactory.decodeFile(path)
+                        if (bmp != null) runOnUiThread { iv.setImageBitmap(bmp) }
+                    }
+                }
+            }
+        }
+        card.isFocusable = true
+        card.setOnFocusChangeListener { v, has ->
+            v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000)
+            if (has) (v.background as? GradientDrawable)?.setColor(if (has) 0xFF2E4A6E.toInt() else 0xFF1A2A35.toInt())
+        }
+        card.setOnClickListener { openLink(wp.url) }
+        messagesBox.addView(card)
+    }
+
+    private fun addStickerView(fileId: Int, localPath: String) {
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 8, 0, 8)
+            layoutParams = LinearLayout.LayoutParams(200, 200)
+        }
+        val lav = LottieAnimationView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(200, 200)
+            repeatCount = com.airbnb.lottie.LottieDrawable.INFINITE
+        }
+        container.addView(lav)
+        messagesBox.addView(container)
+
+        fun loadLottie(path: String) {
+            try {
+                val gz = GZIPInputStream(File(path).inputStream())
+                val json = gz.bufferedReader().readText()
+                gz.close()
+                LottieCompositionFactory.fromJsonStringSync(json, path)
+                    .value?.let { comp ->
+                        runOnUiThread { lav.setComposition(comp); lav.playAnimation() }
+                    }
+            } catch (e: Exception) {
+                runOnUiThread { container.removeAllViews()
+                    container.addView(TextView(this).apply { text = "🎭"; textSize = 36f }) }
+            }
+        }
+
+        if (localPath.isNotEmpty() && File(localPath).exists()) {
+            loadLottie(localPath)
+        } else {
+            TdClient.downloadFilePath(fileId) { path ->
+                if (path.isNotEmpty()) loadLottie(path)
+            }
         }
     }
 
