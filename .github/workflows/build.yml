@@ -91,6 +91,9 @@ jobs:
           echo "== ChatTypePrivate ==";          grep -n -A6 "public static class ChatTypePrivate extends" "$f" | head -8 || true
           echo "== WebPage class ==";            grep -n -A40 "public static class WebPage extends" "$f" | head -45 || true
           echo "== LinkPreview class ==";         grep -n -A60 "public static class LinkPreview extends" "$f" | head -65 || true
+          echo "== LinkPreviewType subclasses =="; grep -n "public static class LinkPreviewType" "$f" || true
+          echo "== LinkPreviewTypePhoto ==";       grep -n -A10 "public static class LinkPreviewTypePhoto extends" "$f" | head -12 || true
+          echo "== LinkPreviewTypeArticle ==";     grep -n -A10 "public static class LinkPreviewTypeArticle extends" "$f" | head -12 || true
           echo "== MessageText webPage ==";       grep -n -A12 "public static class MessageText extends" "$f" | head -14 || true
           echo "== StickerFormat ==";             grep -n "public static class StickerFormat" "$f" || true
 
