@@ -211,9 +211,9 @@ class BotChatActivity : FragmentActivity() {
                     link != null -> addRow(t, true) { openLink(link) }
                     else -> addRow(t, false, null)
                 }
-                // Link preview da WebPage allegata al messaggio
-                val wp = (m.content as? TdApi.MessageText)?.webPage
-                if (wp != null) addLinkPreview(wp)
+                // Link preview da WebPage allegata al messaggio (campi da verificare col dump)
+                // val wp = (m.content as? TdApi.MessageText)?.webPage
+                // if (wp != null) addLinkPreview(wp)
             }
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
@@ -442,6 +442,7 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
+    /* addLinkPreview — disabilitato finché non verifichiamo i nomi dei campi WebPage dal dump
     private fun addLinkPreview(wp: TdApi.WebPage) {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -516,6 +517,7 @@ class BotChatActivity : FragmentActivity() {
         card.setOnClickListener { openLink(wp.url) }
         messagesBox.addView(card)
     }
+    */ // fine addLinkPreview commentata
 
     private fun addStickerView(fileId: Int, localPath: String) {
         val container = LinearLayout(this).apply {
