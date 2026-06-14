@@ -89,6 +89,9 @@ jobs:
           echo "== BotInfo commands ==";         grep -n "BotCommand\[\] commands" "$f" | head || true
           echo "== BotCommand ==";               grep -n -A6 "public static class BotCommand extends" "$f" | head -10 || true
           echo "== ChatTypePrivate ==";          grep -n -A6 "public static class ChatTypePrivate extends" "$f" | head -8 || true
+          echo "== WebPage class ==";            grep -n -A40 "public static class WebPage extends" "$f" | head -45 || true
+          echo "== MessageText webPage ==";      grep -n -A12 "public static class MessageText extends" "$f" | head -14 || true
+          echo "== StickerFormat ==";            grep -n "public static class StickerFormat" "$f" || true
 
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
