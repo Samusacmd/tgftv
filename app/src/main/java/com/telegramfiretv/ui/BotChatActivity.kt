@@ -1,6 +1,7 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.BitmapFactory
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
@@ -9,6 +10,7 @@ import android.text.InputType
 import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -480,7 +482,33 @@ class BotChatActivity : FragmentActivity() {
                 maxLines = 3
             })
         }
-        // Immagine anteprima: campi da verificare col dump (lp.photo non esiste in questo master)
+        // Immagine anteprima da LinkPreviewType
+        val previewPhoto: TdApi.Photo? = when (val t = lp.type) {
+            is TdApi.LinkPreviewTypePhoto -> t.photo
+            is TdApi.LinkPreviewTypeArticle -> t.photo
+            is TdApi.LinkPreviewTypeVideo -> t.video?.thumbnail?.file?.let { null } // solo video, niente thumb
+            else -> null
+        }
+        val thumb = previewPhoto?.sizes?.maxByOrNull { it.width * it.height }
+        if (thumb != null) {
+            val iv = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 200
+                ).also { it.topMargin = 10 }
+            }
+            card.addView(iv)
+            val path0 = thumb.photo.local.path
+            if (path0.isNotEmpty()) {
+                BitmapFactory.decodeFile(path0)?.let { iv.setImageBitmap(it) }
+            } else {
+                TdClient.downloadFilePath(thumb.photo.id) { path ->
+                    BitmapFactory.decodeFile(path)?.let { bmp ->
+                        runOnUiThread { iv.setImageBitmap(bmp) }
+                    }
+                }
+            }
+        }
         card.isFocusable = true
         card.setOnFocusChangeListener { v, has ->
             (v.background as? GradientDrawable)
