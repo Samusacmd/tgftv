@@ -486,7 +486,6 @@ class BotChatActivity : FragmentActivity() {
         val previewPhoto: TdApi.Photo? = when (val t = lp.type) {
             is TdApi.LinkPreviewTypePhoto -> t.photo
             is TdApi.LinkPreviewTypeArticle -> t.photo
-            is TdApi.LinkPreviewTypeVideo -> t.video?.thumbnail?.file?.let { null } // solo video, niente thumb
             else -> null
         }
         val thumb = previewPhoto?.sizes?.maxByOrNull { it.width * it.height }
