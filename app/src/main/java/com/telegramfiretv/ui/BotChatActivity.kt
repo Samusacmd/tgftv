@@ -2,7 +2,6 @@ package com.telegramfiretv.ui
 
 import android.content.Intent
 import android.graphics.BitmapFactory
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -211,9 +210,7 @@ class BotChatActivity : FragmentActivity() {
                     link != null -> addRow(t, true) { openLink(link) }
                     else -> addRow(t, false, null)
                 }
-                // Link preview da WebPage allegata al messaggio (campi da verificare col dump)
-                // val wp = (m.content as? TdApi.MessageText)?.webPage
-                // if (wp != null) addLinkPreview(wp)
+                // Link preview: da implementare dopo dump dei campi WebPage
             }
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
@@ -441,83 +438,6 @@ class BotChatActivity : FragmentActivity() {
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
         }
     }
-
-    /* addLinkPreview — disabilitato finché non verifichiamo i nomi dei campi WebPage dal dump
-    private fun addLinkPreview(wp: TdApi.WebPage) {
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            val bg = GradientDrawable().apply {
-                setColor(0xFF1A2A35.toInt())
-                cornerRadius = 12f
-                setStroke(3, 0xFF2E6E9E.toInt())
-            }
-            background = bg
-            setPadding(20, 16, 20, 16)
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.topMargin = 6; lp.bottomMargin = 6
-            layoutParams = lp
-        }
-        val siteName = wp.siteName.ifEmpty { wp.url }
-        if (siteName.isNotEmpty()) {
-            card.addView(TextView(this).apply {
-                text = siteName
-                setTextColor(0xFF4FC3F7.toInt())
-                textSize = 12f
-                setPadding(0, 0, 0, 4)
-            })
-        }
-        if (wp.title.isNotEmpty()) {
-            card.addView(TextView(this).apply {
-                text = wp.title
-                setTextColor(0xFFFFFFFF.toInt())
-                textSize = 15f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(0, 0, 0, 4)
-            })
-        }
-        if (wp.description.text.isNotEmpty()) {
-            card.addView(TextView(this).apply {
-                text = wp.description.text
-                setTextColor(0xFFB0BEC5.toInt())
-                textSize = 13f
-                maxLines = 3
-            })
-        }
-        // Immagine anteprima
-        val thumb = wp.photo?.sizes?.maxByOrNull { it.width * it.height }
-        if (thumb != null) {
-            val iv = ImageView(this).apply {
-                scaleType = ImageView.ScaleType.CENTER_CROP
-                val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 200)
-                lp.topMargin = 10
-                layoutParams = lp
-            }
-            card.addView(iv)
-            val localPath = thumb.photo.local.path
-            if (localPath.isNotEmpty()) {
-                val bmp = BitmapFactory.decodeFile(localPath)
-                if (bmp != null) iv.setImageBitmap(bmp)
-            } else {
-                TdClient.downloadFilePath(thumb.photo.id) { path ->
-                    if (path.isNotEmpty()) {
-                        val bmp = BitmapFactory.decodeFile(path)
-                        if (bmp != null) runOnUiThread { iv.setImageBitmap(bmp) }
-                    }
-                }
-            }
-        }
-        card.isFocusable = true
-        card.setOnFocusChangeListener { v, has ->
-            v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000)
-            if (has) (v.background as? GradientDrawable)?.setColor(if (has) 0xFF2E4A6E.toInt() else 0xFF1A2A35.toInt())
-        }
-        card.setOnClickListener { openLink(wp.url) }
-        messagesBox.addView(card)
-    }
-    */ // fine addLinkPreview commentata
 
     private fun addStickerView(fileId: Int, localPath: String) {
         val container = LinearLayout(this).apply {
