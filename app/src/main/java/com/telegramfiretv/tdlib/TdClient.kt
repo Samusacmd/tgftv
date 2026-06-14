@@ -181,6 +181,22 @@ object TdClient {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
     }
 
+    /** Scarica un file e chiama [handler] con il path locale una volta completato. */
+    fun downloadFilePath(fileId: Int, handler: (String) -> Unit) {
+        client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { obj ->
+            val path = (obj as? TdApi.File)?.local?.path ?: ""
+            if (path.isNotEmpty()) { handler(path); return@send }
+            // Fallback: ascolta UpdateFile finché il file è scaricato
+            val prev = onFileUpdated
+            onFileUpdated = { file ->
+                if (file.id == fileId && file.local.isDownloadingCompleted) {
+                    onFileUpdated = prev
+                    handler(file.local.path)
+                } else prev?.invoke(file)
+            }
+        }
+    }
+
     fun cancelDownload(fileId: Int) {
         client?.send(TdApi.CancelDownloadFile(fileId, false)) {}
     }
