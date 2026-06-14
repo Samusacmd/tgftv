@@ -2,6 +2,7 @@ package com.telegramfiretv.ui
 
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -211,6 +212,8 @@ class BotChatActivity : FragmentActivity() {
                     else -> addRow(t, false, null)
                 }
                 // Link preview: da implementare dopo dump dei campi WebPage
+                val lp = (m.content as? TdApi.MessageText)?.linkPreview
+                if (lp != null) addLinkPreview(lp)
             }
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
@@ -437,6 +440,75 @@ class BotChatActivity : FragmentActivity() {
             is TdApi.MessageSticker -> if (c.sticker.format is TdApi.StickerFormatTgs) null else "[sticker]"
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
         }
+    }
+
+    private fun addLinkPreview(lp: TdApi.LinkPreview) {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                setColor(0xFF1A2A35.toInt())
+                cornerRadius = 12f
+                setStroke(3, 0xFF2E6E9E.toInt())
+            }
+            setPadding(20, 16, 20, 16)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = 6; it.bottomMargin = 6 }
+        }
+        val site = lp.siteName.ifEmpty { lp.url }
+        if (site.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = site
+                setTextColor(0xFF4FC3F7.toInt())
+                textSize = 12f
+                setPadding(0, 0, 0, 4)
+            })
+        }
+        if (lp.title.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = lp.title
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 15f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, 0, 0, 4)
+            })
+        }
+        if (lp.description.text.isNotEmpty()) {
+            card.addView(TextView(this).apply {
+                text = lp.description.text
+                setTextColor(0xFFB0BEC5.toInt())
+                textSize = 13f
+                maxLines = 3
+            })
+        }
+        val thumb = lp.photo?.sizes?.maxByOrNull { it.width * it.height }
+        if (thumb != null) {
+            val iv = ImageView(this).apply {
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 200
+                ).also { it.topMargin = 10 }
+            }
+            card.addView(iv)
+            val path0 = thumb.photo.local.path
+            if (path0.isNotEmpty()) {
+                BitmapFactory.decodeFile(path0)?.let { iv.setImageBitmap(it) }
+            } else {
+                TdClient.downloadFilePath(thumb.photo.id) { path ->
+                    BitmapFactory.decodeFile(path)?.let { bmp ->
+                        runOnUiThread { iv.setImageBitmap(bmp) }
+                    }
+                }
+            }
+        }
+        card.isFocusable = true
+        card.setOnFocusChangeListener { v, has ->
+            (v.background as? GradientDrawable)
+                ?.setColor(if (has) 0xFF2E4A6E.toInt() else 0xFF1A2A35.toInt())
+        }
+        card.setOnClickListener { openLink(lp.url) }
+        messagesBox.addView(card)
     }
 
     private fun addStickerView(fileId: Int, localPath: String) {
