@@ -337,6 +337,16 @@ class BotChatActivity : FragmentActivity() {
             openInvite(link)
             return
         }
+        if (!link.contains("t.me/") && !raw.trim().startsWith("@")) {
+            // Link esterno (non Telegram): apri nel browser di sistema
+            val url = if (link.startsWith("http://") || link.startsWith("https://")) link else "https://$link"
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Impossibile aprire il link", Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
         val u = extractUsername(raw)
         if (u == null) {
             Toast.makeText(this, "Link non apribile: $raw", Toast.LENGTH_LONG).show()
@@ -399,6 +409,7 @@ class BotChatActivity : FragmentActivity() {
 
     private fun findLink(text: String): String? {
         Regex("(https?://)?t\\.me/\\S+").find(text)?.let { return it.value }
+        Regex("https?://\\S+").find(text)?.let { return it.value }
         Regex("@[A-Za-z0-9_]{4,}").find(text)?.let { return it.value }
         return null
     }
