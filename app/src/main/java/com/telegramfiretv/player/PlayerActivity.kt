@@ -19,7 +19,10 @@ import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.telegramfiretv.databinding.ActivityPlayerBinding
 import com.telegramfiretv.tdlib.TdClient
 import com.telegramfiretv.ui.Settings
@@ -56,6 +59,8 @@ class PlayerActivity : FragmentActivity() {
     private var isAudio = false
     private var isPhoto = false
     private var started = false
+    private var streamingFallback = false
+    private var streamingActive = false
 
     @Volatile
     private var stopped = false
@@ -128,6 +133,8 @@ class PlayerActivity : FragmentActivity() {
         val kind = kinds.getOrElse(index) { 0 }
         isAudio = kind == 1
         isPhoto = kind == 2
+        streamingFallback = false
+        streamingActive = false
     }
 
     private fun goNext() { if (index < fileIds.size - 1) switchTo(index + 1) }
@@ -206,6 +213,19 @@ class PlayerActivity : FragmentActivity() {
 
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
+                    if (streamingActive && !streamingFallback && !isPhoto) {
+                        // Lo streaming ha fallito: ricadiamo sul download classico per questo file.
+                        streamingFallback = true
+                        streamingActive = false
+                        started = false
+                        runOnUiThread {
+                            setStatus("Streaming non riuscito, scarico normalmente…")
+                            TdClient.downloadFile(targetFileId) { obj ->
+                                if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+                            }
+                        }
+                        return
+                    }
                     runOnUiThread {
                         status.visibility = View.VISIBLE
                         status.text = "Errore riproduzione:\n${error.errorCodeName}\n${error.message ?: ""}"
@@ -233,13 +253,65 @@ class PlayerActivity : FragmentActivity() {
             if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
         }
         setStatus("Preparo: $label")
-        TdClient.downloadFile(targetFileId) { obj ->
-            if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+
+        val useStreaming = Settings.streamingEnabled(this) && !isPhoto && !streamingFallback
+        if (useStreaming) {
+            streamingActive = true
+            // Chiediamo info sul file per conoscerne la dimensione e avviare lo streaming.
+            TdClient.getFile(targetFileId) { obj ->
+                if (stopped) return@getFile
+                if (obj is TdApi.File && obj.size > 0) {
+                    runOnUiThread { startStreaming(obj) }
+                } else {
+                    // Niente dimensione nota: ricadiamo sul download classico.
+                    runOnUiThread {
+                        streamingActive = false
+                        TdClient.downloadFile(targetFileId) { o ->
+                            if (!stopped && o is TdApi.File) runOnUiThread { onFileProgress(o) }
+                        }
+                    }
+                }
+            }
+        } else {
+            TdClient.downloadFile(targetFileId) { obj ->
+                if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+            }
         }
+    }
+
+    /** Avvia la riproduzione in streaming usando TdDataSource, con un buffer iniziale minimo. */
+    @androidx.annotation.OptIn(UnstableApi::class)
+    private fun startStreaming(file: TdApi.File) {
+        if (started || stopped) return
+        val exo = player ?: return
+        setStatus("Avvio streaming…")
+
+        val factory = TdDataSource.Factory(targetFileId, file.size, estimatedBufferBytes())
+        val mediaSource = ProgressiveMediaSource.Factory(factory)
+            .createMediaSource(MediaItem.fromUri(Uri.parse("tdfile://$targetFileId")))
+
+        started = true
+        status.visibility = View.GONE
+
+        val prev = lastPlayedFileId
+        lastPlayedFileId = targetFileId
+        if (prev >= 0 && prev != targetFileId) {
+            val r = Runnable { TdClient.deleteFile(prev) }
+            pendingDelete = r
+            handler.postDelayed(r, 30_000)
+        }
+
+        exo.setMediaSource(mediaSource)
+        exo.prepare()
+        val pos = Settings.savedPosition(this, targetFileId)
+        if (pos > 0) exo.seekTo(pos)
+        exo.playWhenReady = true
+        if (isAudio) binding.playerView.showController()
     }
 
     private fun onFileProgress(file: TdApi.File) {
         if (stopped) return
+        if (streamingActive) return // gestito internamente da TdDataSource
         val local = file.local
         if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
             if (isPhoto) showPhoto(local.path) else play(local.path)
@@ -295,6 +367,18 @@ class PlayerActivity : FragmentActivity() {
         if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
         if (isAudio) binding.playerView.showController()
+    }
+
+    /**
+     * Stima quanti byte bufferizzare prima di avviare la riproduzione, in base ai secondi
+     * impostati dall'utente. Usa una stima di bitrate prudente (audio/video misto) perché
+     * il bitrate reale non è noto finché il file non è almeno parzialmente analizzato;
+     * sovrastimare leggermente evita scatti, sottostimare causa solo un'attesa più breve.
+     */
+    private fun estimatedBufferBytes(): Long {
+        val seconds = Settings.streamingBufferSec(this)
+        val assumedBitrateBytesPerSec = if (isAudio) 32L * 1024L else 600L * 1024L
+        return seconds * assumedBitrateBytesPerSec
     }
 
     private fun setStatus(text: String) {
