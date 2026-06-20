@@ -60,6 +60,7 @@ class PlayerActivity : FragmentActivity() {
     private var isPhoto = false
     private var started = false
     private var streamingFallback = false
+    private var fileListener: ((TdApi.File) -> Unit)? = null
     private var streamingActive = false
 
     @Volatile
@@ -261,9 +262,16 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        TdClient.onFileUpdated = { file ->
+        // Usiamo addFileListener (lista condivisa, sicura) invece del singolo campo
+        // onFileUpdated: quest'ultimo viene sovrascritto anche da altri punti dell'app
+        // (es. download di miniature/sticker), causando catene di closure rotte che
+        // potevano portare a crash imprevisti durante la riproduzione.
+        fileListener?.let { TdClient.removeFileListener(it) }
+        val listener: (TdApi.File) -> Unit = { file ->
             if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
         }
+        fileListener = listener
+        TdClient.addFileListener(listener)
         setStatus("Preparo: $label")
 
         val useStreaming = Settings.streamingEnabled(this) && !isPhoto && !streamingFallback
@@ -425,7 +433,8 @@ class PlayerActivity : FragmentActivity() {
                 Settings.savePosition(this, targetFileId, it.currentPosition)
             }
         }
-        TdClient.onFileUpdated = null
+        fileListener?.let { TdClient.removeFileListener(it) }
+        fileListener = null
         if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
         binding.playerView.player = null
         player?.release()
