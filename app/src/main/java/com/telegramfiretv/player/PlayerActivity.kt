@@ -148,7 +148,9 @@ class PlayerActivity : FragmentActivity() {
                 Settings.savePosition(this, targetFileId, it.currentPosition)
             }
         }
-        if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
+        // Stesso motivo di onStop: in streaming il download del file lasciato va sempre
+        // fermato, altrimenti compete con quello del nuovo file appena selezionato.
+        if (targetFileId >= 0 && (streamingActive || !started)) TdClient.cancelDownload(targetFileId)
         index = i
         applyCurrent()
         startItem()
@@ -435,7 +437,10 @@ class PlayerActivity : FragmentActivity() {
         }
         fileListener?.let { TdClient.removeFileListener(it) }
         fileListener = null
-        if (targetFileId >= 0 && !started) TdClient.cancelDownload(targetFileId)
+        // Per lo streaming il download non è mai "completo" finché non si è visto tutto
+        // il file: se non cancelliamo qui, resta attivo in background e rallenta/blocca
+        // l'avvio dello streaming del prossimo file scelto dalla lista.
+        if (targetFileId >= 0 && (streamingActive || !started)) TdClient.cancelDownload(targetFileId)
         binding.playerView.player = null
         player?.release()
         player = null
