@@ -52,18 +52,27 @@ class TdDataSource(
         bytesRemaining = if (dataSpec.length != androidx.media3.common.C.LENGTH_UNSET.toLong())
             dataSpec.length else totalSize - dataSpec.position
 
-        // Avvia subito il download con priorità sull'offset richiesto: questo è anche ciò
-        // che fa TDLib creare il file fisico locale (GetFile da solo non lo crea).
-        TdClient.downloadFileRange(fileId, readPosition, bytesRemaining.coerceAtLeast(0))
+        try {
+            // Avvia subito il download con priorità sull'offset richiesto: questo è anche ciò
+            // che fa TDLib creare il file fisico locale (GetFile da solo non lo crea).
+            TdClient.downloadFileRange(fileId, readPosition, bytesRemaining.coerceAtLeast(0))
 
-        // Aspetta che TDLib confermi un path locale (il file viene creato all'avvio del download).
-        val path = waitForLocalPath(timeoutMs = 10_000)
-            ?: throw DataSourceException(PlaybackErrorCodes.IO_FILE_NOT_FOUND)
-        localPath = path
-        raf = RandomAccessFile(localPath, "r")
+            // Aspetta che TDLib confermi un path locale (il file viene creato all'avvio del download).
+            val path = waitForLocalPath(timeoutMs = 10_000)
+                ?: throw DataSourceException(PlaybackErrorCodes.IO_FILE_NOT_FOUND)
+            localPath = path
+            raf = RandomAccessFile(localPath, "r")
 
-        // Attende che almeno i primi byte richiesti siano disponibili prima di restituire.
-        waitForBytesAvailable(readPosition, minOf(bytesRemaining, initialBufferBytes), timeoutMs = 15_000)
+            // Attende che almeno i primi byte richiesti siano disponibili prima di restituire.
+            waitForBytesAvailable(readPosition, minOf(bytesRemaining, initialBufferBytes), timeoutMs = 15_000)
+        } catch (e: DataSourceException) {
+            throw e
+        } catch (e: Exception) {
+            // Qualsiasi altro errore imprevisto: lo trasformiamo in DataSourceException così
+            // ExoPlayer lo gestisce tramite onPlayerError invece di farlo propagare grezzo
+            // (che altrimenti potrebbe far crashare l'intera Activity).
+            throw DataSourceException(PlaybackErrorCodes.IO_UNSPECIFIED)
+        }
 
         transferStarted(dataSpec)
         return bytesRemaining
@@ -75,22 +84,30 @@ class TdDataSource(
 
         val toRead = minOf(length.toLong(), bytesRemaining).toInt()
 
-        // Attende che i byte richiesti siano scaricati. Timeout ampio: TDLib può avere
-        // rallentamenti temporanei di rete; un timeout breve causava fallback ingiustificati
-        // al download classico, con perdita della posizione di riproduzione.
-        if (!waitForBytesAvailable(readPosition, toRead.toLong(), timeoutMs = 60_000)) {
-            throw DataSourceException(PlaybackErrorCodes.IO_READ_POSITION_OUT_OF_RANGE)
+        try {
+            // Attende che i byte richiesti siano scaricati. Timeout ampio: TDLib può avere
+            // rallentamenti temporanei di rete; un timeout breve causava fallback ingiustificati
+            // al download classico, con perdita della posizione di riproduzione.
+            if (!waitForBytesAvailable(readPosition, toRead.toLong(), timeoutMs = 60_000)) {
+                throw DataSourceException(PlaybackErrorCodes.IO_READ_POSITION_OUT_OF_RANGE)
+            }
+
+            val file = raf ?: throw DataSourceException(PlaybackErrorCodes.IO_UNSPECIFIED)
+            file.seek(readPosition)
+            val read = file.read(buffer, offset, toRead)
+            if (read == -1) return -1
+
+            readPosition += read
+            bytesRemaining -= read
+            bytesTransferred(read)
+            return read
+        } catch (e: DataSourceException) {
+            throw e
+        } catch (e: Exception) {
+            // Stesso principio di open(): non lasciar mai scappare un'eccezione grezza,
+            // altrimenti rischia di far crashare l'intera Activity invece che il solo player.
+            throw DataSourceException(PlaybackErrorCodes.IO_UNSPECIFIED)
         }
-
-        val file = raf ?: throw DataSourceException(PlaybackErrorCodes.IO_UNSPECIFIED)
-        file.seek(readPosition)
-        val read = file.read(buffer, offset, toRead)
-        if (read == -1) return -1
-
-        readPosition += read
-        bytesRemaining -= read
-        bytesTransferred(read)
-        return read
     }
 
     override fun getUri(): Uri = uri
@@ -126,7 +143,11 @@ class TdDataSource(
                     latch.countDown()
                 }
             }
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            try {
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            } catch (ie: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         } finally {
             TdClient.removeFileListener(listener)
         }
@@ -164,7 +185,11 @@ class TdDataSource(
                     }
                 }
             }
-            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            try {
+                latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+            } catch (ie: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
         } finally {
             TdClient.removeFileListener(listener)
         }

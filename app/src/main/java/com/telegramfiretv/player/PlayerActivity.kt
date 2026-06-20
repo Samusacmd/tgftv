@@ -214,17 +214,26 @@ class PlayerActivity : FragmentActivity() {
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     if (streamingActive && !streamingFallback && !isPhoto) {
-                        // Lo streaming ha fallito: salviamo la posizione raggiunta e ricadiamo
-                        // sul download classico, riprendendo da dove si era interrotto.
-                        val resumeAt = exo.currentPosition.coerceAtLeast(0L)
-                        Settings.savePosition(this@PlayerActivity, targetFileId, resumeAt)
-                        streamingFallback = true
-                        streamingActive = false
-                        started = false
-                        runOnUiThread {
-                            setStatus("Streaming non riuscito, scarico normalmente…")
-                            TdClient.downloadFile(targetFileId) { obj ->
-                                if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+                        try {
+                            // Lo streaming ha fallito: salviamo la posizione raggiunta e ricadiamo
+                            // sul download classico, riprendendo da dove si era interrotto.
+                            val resumeAt = exo.currentPosition.coerceAtLeast(0L)
+                            Settings.savePosition(this@PlayerActivity, targetFileId, resumeAt)
+                            streamingFallback = true
+                            streamingActive = false
+                            started = false
+                            runOnUiThread {
+                                setStatus("Streaming non riuscito, scarico normalmente…")
+                                TdClient.downloadFile(targetFileId) { obj ->
+                                    if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+                                }
+                            }
+                        } catch (e: Exception) {
+                            // Non lasciamo che un problema nel percorso di fallback faccia
+                            // crashare l'Activity: mostriamo l'errore invece.
+                            runOnUiThread {
+                                status.visibility = View.VISIBLE
+                                status.text = "Errore nel passaggio al download:\n${e.message ?: ""}"
                             }
                         }
                         return
