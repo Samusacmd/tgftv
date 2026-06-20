@@ -52,16 +52,15 @@ class TdDataSource(
         bytesRemaining = if (dataSpec.length != androidx.media3.common.C.LENGTH_UNSET.toLong())
             dataSpec.length else totalSize - dataSpec.position
 
-        // Assicura che il path locale sia noto (il file potrebbe già esistere parzialmente).
-        val path = waitForLocalPath(timeoutMs = 8_000)
-            ?: throw DataSourceException(
-                PlaybackErrorCodes.IO_FILE_NOT_FOUND
-            )
+        // Avvia subito il download con priorità sull'offset richiesto: questo è anche ciò
+        // che fa TDLib creare il file fisico locale (GetFile da solo non lo crea).
+        TdClient.downloadFileRange(fileId, readPosition, bytesRemaining.coerceAtLeast(0))
+
+        // Aspetta che TDLib confermi un path locale (il file viene creato all'avvio del download).
+        val path = waitForLocalPath(timeoutMs = 10_000)
+            ?: throw DataSourceException(PlaybackErrorCodes.IO_FILE_NOT_FOUND)
         localPath = path
         raf = RandomAccessFile(localPath, "r")
-
-        // Richiede a TDLib di scaricare con priorità a partire dalla posizione richiesta.
-        TdClient.downloadFileRange(fileId, readPosition, bytesRemaining.coerceAtLeast(0))
 
         // Attende che almeno i primi byte richiesti siano disponibili prima di restituire.
         waitForBytesAvailable(readPosition, minOf(bytesRemaining, initialBufferBytes), timeoutMs = 15_000)
@@ -105,16 +104,31 @@ class TdDataSource(
         }
     }
 
-    /** Aspetta che TDLib confermi il path locale del file (di solito già presente dopo il primo download/get). */
+    /** Aspetta che TDLib confermi il path locale del file, una volta che il download è stato avviato. */
     private fun waitForLocalPath(timeoutMs: Long): String? {
         val latch = CountDownLatch(1)
-        var resultPath: String? = null
-        TdClient.getFile(fileId) { obj ->
-            if (obj is TdApi.File && obj.local.path.isNotEmpty()) resultPath = obj.local.path
-            latch.countDown()
+        val resultPath = java.util.concurrent.atomic.AtomicReference<String?>(null)
+
+        val listener: (TdApi.File) -> Unit = { f ->
+            if (f.id == fileId && f.local.path.isNotEmpty()) {
+                resultPath.set(f.local.path)
+                latch.countDown()
+            }
         }
-        latch.await(timeoutMs, TimeUnit.MILLISECONDS)
-        return resultPath
+        TdClient.addFileListener(listener)
+        try {
+            // Controllo immediato, nel caso il path sia già noto.
+            TdClient.getFile(fileId) { obj ->
+                if (obj is TdApi.File && obj.local.path.isNotEmpty()) {
+                    resultPath.set(obj.local.path)
+                    latch.countDown()
+                }
+            }
+            latch.await(timeoutMs, TimeUnit.MILLISECONDS)
+        } finally {
+            TdClient.removeFileListener(listener)
+        }
+        return resultPath.get()
     }
 
     /**
@@ -125,13 +139,13 @@ class TdDataSource(
         if (needed <= 0) return true
         val target = from + needed
         val latch = CountDownLatch(1)
-        var satisfied = false
+        val satisfied = java.util.concurrent.atomic.AtomicBoolean(false)
 
         val listener: (TdApi.File) -> Unit = { f ->
             if (f.id == fileId) {
                 val downloadedPrefix = downloadedPrefixEnd(f)
                 if (downloadedPrefix >= target || f.local.isDownloadingCompleted) {
-                    satisfied = true
+                    satisfied.set(true)
                     latch.countDown()
                 }
             }
@@ -143,7 +157,7 @@ class TdDataSource(
                 if (obj is TdApi.File) {
                     val downloadedPrefix = downloadedPrefixEnd(obj)
                     if (downloadedPrefix >= target || obj.local.isDownloadingCompleted) {
-                        satisfied = true
+                        satisfied.set(true)
                         latch.countDown()
                     }
                 }
@@ -152,7 +166,7 @@ class TdDataSource(
         } finally {
             TdClient.removeFileListener(listener)
         }
-        return satisfied
+        return satisfied.get()
     }
 
     /** Stima la fine del prefisso scaricato in sequenza dall'inizio del file. */
