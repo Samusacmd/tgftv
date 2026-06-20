@@ -181,6 +181,19 @@ object TdClient {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
     }
 
+    /**
+     * Scarica un intervallo del file con priorità alta, per lo streaming.
+     * offset/limit in byte; TDLib scarica per blocchi a partire da offset.
+     */
+    fun downloadFileRange(fileId: Int, offset: Long, limit: Long, handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(TdApi.DownloadFile(fileId, 32, offset, limit, false)) { handler(it) }
+    }
+
+    /** Richiede lo stato corrente del file (per leggere quanto è scaricato in sequenza). */
+    fun getFile(fileId: Int, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetFile(fileId)) { handler(it) }
+    }
+
     /** Scarica un file e chiama [handler] con il path locale una volta completato. */
     fun downloadFilePath(fileId: Int, handler: (String) -> Unit) {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { obj ->
