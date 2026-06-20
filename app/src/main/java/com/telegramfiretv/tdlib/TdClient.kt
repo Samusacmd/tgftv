@@ -199,14 +199,17 @@ object TdClient {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { obj ->
             val path = (obj as? TdApi.File)?.local?.path ?: ""
             if (path.isNotEmpty()) { handler(path); return@send }
-            // Fallback: ascolta UpdateFile finché il file è scaricato
-            val prev = onFileUpdated
-            onFileUpdated = { file ->
+            // Fallback: ascolta gli aggiornamenti finché il file è scaricato, usando la
+            // lista condivisa fileListeners (sicura per usi concorrenti) invece del
+            // singolo campo onFileUpdated, che altri punti dell'app possono sovrascrivere.
+            lateinit var listener: (TdApi.File) -> Unit
+            listener = { file ->
                 if (file.id == fileId && file.local.isDownloadingCompleted) {
-                    onFileUpdated = prev
+                    removeFileListener(listener)
                     handler(file.local.path)
-                } else prev?.invoke(file)
+                }
             }
+            addFileListener(listener)
         }
     }
 
