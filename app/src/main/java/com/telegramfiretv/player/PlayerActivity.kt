@@ -260,8 +260,11 @@ class PlayerActivity : FragmentActivity() {
             // Chiediamo info sul file per conoscerne la dimensione e avviare lo streaming.
             TdClient.getFile(targetFileId) { obj ->
                 if (stopped) return@getFile
-                if (obj is TdApi.File && obj.size > 0) {
-                    runOnUiThread { startStreaming(obj) }
+                val knownSize = if (obj is TdApi.File) {
+                    if (obj.size > 0) obj.size else obj.expectedSize
+                } else 0L
+                if (obj is TdApi.File && knownSize > 0) {
+                    runOnUiThread { startStreaming(obj, knownSize) }
                 } else {
                     // Niente dimensione nota: ricadiamo sul download classico.
                     runOnUiThread {
@@ -281,12 +284,12 @@ class PlayerActivity : FragmentActivity() {
 
     /** Avvia la riproduzione in streaming usando TdDataSource, con un buffer iniziale minimo. */
     @androidx.annotation.OptIn(UnstableApi::class)
-    private fun startStreaming(file: TdApi.File) {
+    private fun startStreaming(file: TdApi.File, knownSize: Long) {
         if (started || stopped) return
         val exo = player ?: return
         setStatus("Avvio streaming…")
 
-        val factory = TdDataSource.Factory(targetFileId, file.size, estimatedBufferBytes())
+        val factory = TdDataSource.Factory(targetFileId, knownSize, estimatedBufferBytes())
         val mediaSource = ProgressiveMediaSource.Factory(factory)
             .createMediaSource(MediaItem.fromUri(Uri.parse("tdfile://$targetFileId")))
 
