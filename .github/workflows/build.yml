@@ -96,6 +96,10 @@ jobs:
           echo "== LinkPreviewTypeArticle ==";     grep -n -A10 "public static class LinkPreviewTypeArticle extends" "$f" | head -12 || true
           echo "== MessageText webPage ==";       grep -n -A12 "public static class MessageText extends" "$f" | head -14 || true
           echo "== StickerFormat ==";             grep -n "public static class StickerFormat" "$f" || true
+          echo "== GetFile ==";                   grep -n "public GetFile(" "$f" || true
+          echo "== LocalFile fields ==";           grep -n -A20 "public static class LocalFile extends" "$f" | head -22 || true
+          echo "== File class fields ==";          grep -n -A12 "public static class File extends Object" "$f" | head -14 || true
+          echo "== DownloadFile ==";               grep -n "public DownloadFile(" "$f" || true
 
       - name: Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
