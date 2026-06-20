@@ -59,6 +59,20 @@ object Settings {
     fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
     fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
     fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
+
+    /** Riproduzione in streaming (senza attendere il download completo). Sperimentale. */
+    fun streamingEnabled(c: Context): Boolean = p(c).getBoolean("streaming_enabled", true)
+    fun toggleStreaming(c: Context): Boolean {
+        val n = !streamingEnabled(c); p(c).edit().putBoolean("streaming_enabled", n).apply(); return n
+    }
+
+    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (1-10). */
+    fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 3)
+    fun cycleStreamingBuffer(c: Context): Int {
+        val cur = streamingBufferSec(c)
+        val next = when { cur >= 10 -> 1; else -> cur + 1 }
+        p(c).edit().putInt("streaming_buffer_sec", next).apply(); return next
+    }
 }
 
 class SettingsActivity : FragmentActivity() {
@@ -122,6 +136,18 @@ class SettingsActivity : FragmentActivity() {
         dimBtn.text = dimLabel()
         dimBtn.setOnClickListener { Settings.togglePlayerDim(this); dimBtn.text = dimLabel() }
         root.addView(dimBtn)
+
+        val streamBtn = makeButton()
+        fun streamLabel() = "Riproduzione in streaming: ${if (Settings.streamingEnabled(this)) "Attiva" else "Disattiva"}"
+        streamBtn.text = streamLabel()
+        streamBtn.setOnClickListener { Settings.toggleStreaming(this); streamBtn.text = streamLabel() }
+        root.addView(streamBtn)
+
+        val bufferBtn = makeButton()
+        fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s"
+        bufferBtn.text = bufferLabel()
+        bufferBtn.setOnClickListener { Settings.cycleStreamingBuffer(this); bufferBtn.text = bufferLabel() }
+        root.addView(bufferBtn)
 
         val refreshBtn = makeButton()
         refreshBtn.text = "Aggiorna chat"
