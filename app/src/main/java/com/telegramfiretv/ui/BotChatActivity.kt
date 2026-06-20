@@ -211,10 +211,10 @@ class BotChatActivity : FragmentActivity() {
                     link != null -> addRow(t, true) { openLink(link) }
                     else -> addRow(t, false, null)
                 }
-                // Link preview: da implementare dopo dump dei campi WebPage
-                val lp = (m.content as? TdApi.MessageText)?.linkPreview
-                if (lp != null) addLinkPreview(lp)
             }
+            // Anteprima link: indipendente dal tipo di contenuto del messaggio (testo, foto con caption, ecc.)
+            val lp = (m.content as? TdApi.MessageText)?.linkPreview
+            if (lp != null) addLinkPreview(lp)
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
 
