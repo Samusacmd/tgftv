@@ -279,27 +279,42 @@ class PlayerActivity : FragmentActivity() {
         val useStreaming = Settings.streamingEnabled(this) && !isPhoto && !streamingFallback
         if (useStreaming) {
             streamingActive = true
-            // Chiediamo info sul file per conoscerne la dimensione e avviare lo streaming.
-            TdClient.getFile(targetFileId) { obj ->
-                if (stopped) return@getFile
-                val knownSize = if (obj is TdApi.File) {
-                    if (obj.size > 0) obj.size else obj.expectedSize
-                } else 0L
-                if (obj is TdApi.File && knownSize > 0) {
-                    runOnUiThread { startStreaming(obj, knownSize) }
-                } else {
-                    // Niente dimensione nota: ricadiamo sul download classico.
-                    runOnUiThread {
-                        streamingActive = false
-                        TdClient.downloadFile(targetFileId) { o ->
-                            if (!stopped && o is TdApi.File) runOnUiThread { onFileProgress(o) }
-                        }
-                    }
-                }
-            }
+            requestFileSizeForStreaming(attemptsLeft = 5)
         } else {
             TdClient.downloadFile(targetFileId) { obj ->
                 if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
+            }
+        }
+    }
+
+    /**
+     * Chiede a TDLib la dimensione del file per avviare lo streaming. Appena dopo un cambio
+     * rapido di file, TDLib può rispondere con size/expectedSize ancora a 0 (sta ancora
+     * elaborando la richiesta precedente di cancellazione/avvio): in quel caso riproviamo
+     * dopo una breve attesa invece di arrenderci subito al download classico.
+     */
+    private fun requestFileSizeForStreaming(attemptsLeft: Int) {
+        TdClient.getFile(targetFileId) { obj ->
+            if (stopped) return@getFile
+            val knownSize = if (obj is TdApi.File) {
+                if (obj.size > 0) obj.size else obj.expectedSize
+            } else 0L
+            if (obj is TdApi.File && knownSize > 0) {
+                runOnUiThread { startStreaming(obj, knownSize) }
+            } else if (attemptsLeft > 0) {
+                runOnUiThread {
+                    handler.postDelayed({
+                        if (!stopped) requestFileSizeForStreaming(attemptsLeft - 1)
+                    }, 200)
+                }
+            } else {
+                // Dopo vari tentativi, ancora nessuna dimensione nota: ricadiamo sul download classico.
+                runOnUiThread {
+                    streamingActive = false
+                    TdClient.downloadFile(targetFileId) { o ->
+                        if (!stopped && o is TdApi.File) runOnUiThread { onFileProgress(o) }
+                    }
+                }
             }
         }
     }
@@ -440,7 +455,17 @@ class PlayerActivity : FragmentActivity() {
         // Per lo streaming il download non è mai "completo" finché non si è visto tutto
         // il file: se non cancelliamo qui, resta attivo in background e rallenta/blocca
         // l'avvio dello streaming del prossimo file scelto dalla lista.
-        if (targetFileId >= 0 && (streamingActive || !started)) TdClient.cancelDownload(targetFileId)
+        if (targetFileId >= 0 && (streamingActive || !started)) {
+            TdClient.cancelDownload(targetFileId)
+            if (streamingActive) {
+                // Il file scaricato durante lo streaming è solo una cache temporanea per
+                // la lettura, non un download intenzionale: senza questa cancellazione
+                // resterebbe sul disco indefinitamente ogni video visto, anche se mai
+                // riaperto in seguito (il cleanup automatico scattava solo aprendo il
+                // file SUCCESSIVO, non quando si chiude semplicemente il player).
+                TdClient.deleteFile(targetFileId)
+            }
+        }
         binding.playerView.player = null
         player?.release()
         player = null
