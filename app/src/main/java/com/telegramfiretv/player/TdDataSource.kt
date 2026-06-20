@@ -75,8 +75,10 @@ class TdDataSource(
 
         val toRead = minOf(length.toLong(), bytesRemaining).toInt()
 
-        // Attende che i byte richiesti siano scaricati (con timeout, per non bloccare per sempre).
-        if (!waitForBytesAvailable(readPosition, toRead.toLong(), timeoutMs = 20_000)) {
+        // Attende che i byte richiesti siano scaricati. Timeout ampio: TDLib può avere
+        // rallentamenti temporanei di rete; un timeout breve causava fallback ingiustificati
+        // al download classico, con perdita della posizione di riproduzione.
+        if (!waitForBytesAvailable(readPosition, toRead.toLong(), timeoutMs = 60_000)) {
             throw DataSourceException(PlaybackErrorCodes.IO_READ_POSITION_OUT_OF_RANGE)
         }
 

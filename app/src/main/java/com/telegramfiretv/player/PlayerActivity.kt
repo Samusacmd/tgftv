@@ -214,7 +214,10 @@ class PlayerActivity : FragmentActivity() {
             exo.addListener(object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
                     if (streamingActive && !streamingFallback && !isPhoto) {
-                        // Lo streaming ha fallito: ricadiamo sul download classico per questo file.
+                        // Lo streaming ha fallito: salviamo la posizione raggiunta e ricadiamo
+                        // sul download classico, riprendendo da dove si era interrotto.
+                        val resumeAt = exo.currentPosition.coerceAtLeast(0L)
+                        Settings.savePosition(this@PlayerActivity, targetFileId, resumeAt)
                         streamingFallback = true
                         streamingActive = false
                         started = false
@@ -380,7 +383,7 @@ class PlayerActivity : FragmentActivity() {
      */
     private fun estimatedBufferBytes(): Long {
         val seconds = Settings.streamingBufferSec(this)
-        val assumedBitrateBytesPerSec = if (isAudio) 32L * 1024L else 600L * 1024L
+        val assumedBitrateBytesPerSec = if (isAudio) 32L * 1024L else 1200L * 1024L
         return seconds * assumedBitrateBytesPerSec
     }
 
