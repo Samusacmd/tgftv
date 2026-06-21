@@ -3,6 +3,7 @@ package com.telegramfiretv.ui
 import android.content.Context
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -66,12 +67,13 @@ object Settings {
         val n = !streamingEnabled(c); p(c).edit().putBoolean("streaming_enabled", n).apply(); return n
     }
 
-    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (1-10). */
-    fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 3)
-    fun cycleStreamingBuffer(c: Context): Int {
-        val cur = streamingBufferSec(c)
-        val next = when { cur >= 10 -> 1; else -> cur + 1 }
-        p(c).edit().putInt("streaming_buffer_sec", next).apply(); return next
+    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato.
+     *  Regolabile con sinistra/destra a passi di 10 secondi (intervallo 10-120). */
+    fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 10)
+    fun adjustStreamingBuffer(c: Context, deltaSec: Int): Int {
+        val base = (streamingBufferSec(c) / 10) * 10            // normalizza a multiplo di 10
+        val v = (base + deltaSec).coerceIn(10, 120)
+        p(c).edit().putInt("streaming_buffer_sec", v).apply(); return v
     }
 }
 
@@ -144,9 +146,17 @@ class SettingsActivity : FragmentActivity() {
         root.addView(streamBtn)
 
         val bufferBtn = makeButton()
-        fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s"
+        fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s  ◀ ▶"
         bufferBtn.text = bufferLabel()
-        bufferBtn.setOnClickListener { Settings.cycleStreamingBuffer(this); bufferBtn.text = bufferLabel() }
+        bufferBtn.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> { Settings.adjustStreamingBuffer(this, -10); bufferBtn.text = bufferLabel(); true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> { Settings.adjustStreamingBuffer(this, +10); bufferBtn.text = bufferLabel(); true }
+                    else -> false
+                }
+            } else false
+        }
         root.addView(bufferBtn)
 
         val refreshBtn = makeButton()
@@ -182,6 +192,14 @@ class SettingsActivity : FragmentActivity() {
             startActivity(android.content.Intent(this, WriteSettingsActivity::class.java))
         }
         root.addView(writeBtn)
+
+        // Scorrimento rapido: dal primo elemento premendo SU si salta all'ultimo (e
+        // dall'ultimo premendo GIÙ si torna al primo). Così le impostazioni in fondo si
+        // raggiungono subito; la ScrollView segue automaticamente il focus.
+        chatViewBtn.id = View.generateViewId()
+        writeBtn.id = View.generateViewId()
+        chatViewBtn.nextFocusUpId = writeBtn.id
+        writeBtn.nextFocusDownId = chatViewBtn.id
 
         setContentView(ScrollView(this).apply { addView(root) })
         chatViewBtn.requestFocus()
