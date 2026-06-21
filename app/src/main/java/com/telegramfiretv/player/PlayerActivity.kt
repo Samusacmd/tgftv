@@ -250,7 +250,9 @@ class PlayerActivity : FragmentActivity() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
                         Settings.clearPosition(this@PlayerActivity, targetFileId)
-                        finish()
+                        // Auto-avanzamento: se c'è un file successivo nella lista passa a quello,
+                        // altrimenti (ultimo elemento) chiude il player.
+                        if (index < fileIds.size - 1) goNext() else finish()
                     }
                 }
             })
@@ -264,10 +266,9 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        // Usiamo addFileListener (lista condivisa, sicura) invece del singolo campo
-        // onFileUpdated: quest'ultimo viene sovrascritto anche da altri punti dell'app
-        // (es. download di miniature/sticker), causando catene di closure rotte che
-        // potevano portare a crash imprevisti durante la riproduzione.
+        // Usiamo addFileListener (lista condivisa, sicura): ogni schermata registra il
+        // proprio ascoltatore in modo indipendente, senza interferire con i download di
+        // miniature/sticker o con gli altri ascoltatori attivi nell'app.
         fileListener?.let { TdClient.removeFileListener(it) }
         val listener: (TdApi.File) -> Unit = { file ->
             if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }

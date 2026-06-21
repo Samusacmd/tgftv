@@ -196,13 +196,16 @@ class TdDataSource(
         return satisfied.get()
     }
 
-    /** Stima la fine del prefisso scaricato in sequenza dall'inizio del file. */
+    /** Stima la fine del prefisso scaricato in sequenza, leggibile a partire da readPosition. */
     private fun downloadedPrefixEnd(f: TdApi.File): Long {
-        // TDLib espone downloadedSize (totale scaricato, non necessariamente contiguo se
-        // ci sono richieste con offset multipli) e local.path. Per il nostro pattern
-        // (un solo offset attivo alla volta, sempre crescente) downloadedSize è una stima
-        // valida e sufficientemente prudente del prefisso contiguo disponibile.
-        return f.local.downloadedSize
+        val local = f.local
+        if (local.isDownloadingCompleted) return totalSize.coerceAtLeast(local.downloadedSize)
+        // Va usato l'intervallo CONTIGUO realmente disponibile, che parte da downloadOffset
+        // (l'offset richiesto a TDLib), non downloadedSize: quest'ultimo è il totale dei byte
+        // scaricati, non per forza contigui. Dopo un seek poteva risultare >= target grazie a
+        // byte scaricati prima, mentre quelli alla posizione di lettura non c'erano ancora:
+        // si finiva per leggere zeri/garbage dal file pre-allocato.
+        return local.downloadOffset + local.downloadedPrefixSize
     }
 
 }

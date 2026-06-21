@@ -15,10 +15,20 @@ object TdClient {
     var authState: TdApi.AuthorizationState? = null
         private set
 
-    var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
-    var onChatsChanged: (() -> Unit)? = null
-    var onFileUpdated: ((TdApi.File) -> Unit)? = null
-    var onMessagesChanged: ((Long) -> Unit)? = null
+    // Tutti gli eventi usano liste di listener (thread-safe) invece di un singolo campo
+    // sovrascrivibile: così schermate diverse possono registrarsi/deregistrarsi in modo
+    // indipendente senza azzerarsi a vicenda (problema tipico con i fragment + replace).
+    private val authListeners = CopyOnWriteArrayList<(TdApi.AuthorizationState?) -> Unit>()
+    fun addAuthListener(l: (TdApi.AuthorizationState?) -> Unit) { authListeners.add(l) }
+    fun removeAuthListener(l: (TdApi.AuthorizationState?) -> Unit) { authListeners.remove(l) }
+
+    private val chatsListeners = CopyOnWriteArrayList<() -> Unit>()
+    fun addChatsListener(l: () -> Unit) { chatsListeners.add(l) }
+    fun removeChatsListener(l: () -> Unit) { chatsListeners.remove(l) }
+
+    private val messagesListeners = CopyOnWriteArrayList<(Long) -> Unit>()
+    fun addMessagesListener(l: (Long) -> Unit) { messagesListeners.add(l) }
+    fun removeMessagesListener(l: (Long) -> Unit) { messagesListeners.remove(l) }
 
     private val fileListeners = CopyOnWriteArrayList<(TdApi.File) -> Unit>()
     fun addFileListener(l: (TdApi.File) -> Unit) { fileListeners.add(l) }
@@ -58,7 +68,7 @@ object TdClient {
                     if (chats.none { it.id == chat.id }) chats.add(chat)
                     applyPositions(chat.id, chat.positions)
                 }
-                onChatsChanged?.invoke()
+                for (l in chatsListeners) l()
             }
 
             TdApi.UpdateChatPosition.CONSTRUCTOR -> {
@@ -69,13 +79,12 @@ object TdClient {
                         val map = if (lc == TdApi.ChatListMain.CONSTRUCTOR) mainOrder else archiveOrder
                         if (u.position.order == 0L) map.remove(u.chatId) else map[u.chatId] = u.position.order
                     }
-                    onChatsChanged?.invoke()
+                    for (l in chatsListeners) l()
                 }
             }
 
             TdApi.UpdateFile.CONSTRUCTOR -> {
                 val f = (obj as TdApi.UpdateFile).file
-                onFileUpdated?.invoke(f)
                 for (l in fileListeners) l(f)
             }
 
@@ -85,13 +94,13 @@ object TdClient {
             }
 
             TdApi.UpdateNewMessage.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateNewMessage).message.chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateNewMessage).message.chatId)
 
             TdApi.UpdateMessageEdited.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageEdited).chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateMessageEdited).chatId)
 
             TdApi.UpdateMessageContent.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageContent).chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateMessageContent).chatId)
         }
     }
 
@@ -110,7 +119,7 @@ object TdClient {
             params.databaseEncryptionKey = ByteArray(0)
             client?.send(params) {}
         }
-        onAuthStateChanged?.invoke(state)
+        for (l in authListeners) l(state)
     }
 
     fun sendPhone(phone: String) {
@@ -161,6 +170,12 @@ object TdClient {
         client?.send(TdApi.OpenChat(chatId)) {}
     }
 
+    /** Cerca una chat già nota in modo thread-safe (la lista è mutata dal thread di TDLib). */
+    fun findChat(chatId: Long): TdApi.Chat? = synchronized(chats) { chats.firstOrNull { it.id == chatId } }
+
+    /** Legge un utente dalla cache in modo thread-safe. */
+    fun cachedUser(userId: Long): TdApi.User? = synchronized(users) { users[userId] }
+
     fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)) { handler(it) }
     }
@@ -200,8 +215,8 @@ object TdClient {
             val path = (obj as? TdApi.File)?.local?.path ?: ""
             if (path.isNotEmpty()) { handler(path); return@send }
             // Fallback: ascolta gli aggiornamenti finché il file è scaricato, usando la
-            // lista condivisa fileListeners (sicura per usi concorrenti) invece del
-            // singolo campo onFileUpdated, che altri punti dell'app possono sovrascrivere.
+            // lista condivisa fileListeners (sicura per usi concorrenti e indipendente
+            // dagli altri ascoltatori registrati nell'app).
             lateinit var listener: (TdApi.File) -> Unit
             listener = { file ->
                 if (file.id == fileId && file.local.isDownloadingCompleted) {

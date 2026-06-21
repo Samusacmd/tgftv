@@ -48,6 +48,8 @@ class BotChatActivity : FragmentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { loadAndRender() }
     private var emptyRetries = 5
+    private val messagesListener: (Long) -> Unit =
+        { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -100,7 +102,7 @@ class BotChatActivity : FragmentActivity() {
         setContentView(root)
 
         // La scrittura rispetta le impostazioni "Abilita scrittura".
-        val chat0 = TdClient.chats.firstOrNull { it.id == chatId }
+        val chat0 = TdClient.findChat(chatId)
         val isPrivate = chat0?.type is TdApi.ChatTypePrivate
         isGroupChat = chat0?.type is TdApi.ChatTypeSupergroup || chat0?.type is TdApi.ChatTypeBasicGroup
         // Per i gruppi questa schermata si apre solo dall'icona già autorizzata -> input visibile.
@@ -108,7 +110,7 @@ class BotChatActivity : FragmentActivity() {
         inputRow.visibility = if (isPrivate) View.GONE else View.VISIBLE
 
         TdClient.openChat(chatId)
-        TdClient.onMessagesChanged = { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
+        TdClient.addMessagesListener(messagesListener)
         loadBotInfo()
         loadAndRender()
     }
@@ -127,7 +129,7 @@ class BotChatActivity : FragmentActivity() {
     }
 
     private fun loadBotInfo() {
-        val chat = TdClient.chats.firstOrNull { it.id == chatId } ?: return
+        val chat = TdClient.findChat(chatId) ?: return
         val type = chat.type
         if (type is TdApi.ChatTypePrivate) {
             TdClient.getUserFullInfo(type.userId) { obj ->
@@ -253,7 +255,7 @@ class BotChatActivity : FragmentActivity() {
     private fun renderWithSenders(msgs: List<TdApi.Message>, scrollBottom: Boolean) {
         if (!isGroupChat) { render(msgs, scrollBottom); return }
         val missing = msgs.mapNotNull { (it.senderId as? TdApi.MessageSenderUser)?.userId }
-            .filter { TdClient.users[it] == null }.distinct()
+            .filter { TdClient.cachedUser(it) == null }.distinct()
         if (missing.isEmpty()) { render(msgs, scrollBottom); return }
         var remaining = missing.size
         var done = false
@@ -270,10 +272,10 @@ class BotChatActivity : FragmentActivity() {
     private fun senderLabel(m: TdApi.Message): String {
         return when (val s = m.senderId) {
             is TdApi.MessageSenderUser -> {
-                val u = TdClient.users[s.userId]
+                val u = TdClient.cachedUser(s.userId)
                 if (u != null) (u.firstName + " " + u.lastName).trim().ifEmpty { "Utente" } else "Utente"
             }
-            is TdApi.MessageSenderChat -> TdClient.chats.firstOrNull { it.id == s.chatId }?.title ?: "Canale"
+            is TdApi.MessageSenderChat -> TdClient.findChat(s.chatId)?.title ?: "Canale"
             else -> "Sconosciuto"
         }
     }
@@ -541,19 +543,33 @@ class BotChatActivity : FragmentActivity() {
         container.addView(lav)
         messagesBox.addView(container)
 
+        fun stickerFallback() {
+            container.removeAllViews()
+            container.addView(TextView(this).apply { text = "🎭"; textSize = 36f })
+        }
+
         fun loadLottie(path: String) {
-            try {
-                val gz = GZIPInputStream(File(path).inputStream())
-                val json = gz.bufferedReader().readText()
-                gz.close()
-                LottieCompositionFactory.fromJsonStringSync(json, path)
-                    .value?.let { comp ->
-                        runOnUiThread { lav.setComposition(comp); lav.playAnimation() }
+            // Lettura del file + decompressione GZIP su thread di background: farlo sul main
+            // thread (quando il file era già locale) causava scatti/ANR su sticker grossi.
+            // Il parse vero e proprio lo affidiamo poi al factory asincrono di Lottie.
+            Thread {
+                val json: String? = try {
+                    GZIPInputStream(File(path).inputStream()).bufferedReader().use { it.readText() }
+                } catch (e: Exception) { null }
+                if (json == null) {
+                    runOnUiThread { if (!isFinishing && !isDestroyed) stickerFallback() }
+                    return@Thread
+                }
+                LottieCompositionFactory.fromJsonString(json, path)
+                    .addListener { comp ->
+                        runOnUiThread {
+                            if (!isFinishing && !isDestroyed) { lav.setComposition(comp); lav.playAnimation() }
+                        }
                     }
-            } catch (e: Exception) {
-                runOnUiThread { container.removeAllViews()
-                    container.addView(TextView(this).apply { text = "🎭"; textSize = 36f }) }
-            }
+                    .addFailureListener {
+                        runOnUiThread { if (!isFinishing && !isDestroyed) stickerFallback() }
+                    }
+            }.start()
         }
 
         if (localPath.isNotEmpty() && File(localPath).exists()) {
@@ -604,6 +620,6 @@ class BotChatActivity : FragmentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(refreshRunnable)
-        TdClient.onMessagesChanged = null
+        TdClient.removeMessagesListener(messagesListener)
     }
 }

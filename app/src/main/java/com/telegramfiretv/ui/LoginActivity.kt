@@ -16,6 +16,9 @@ class LoginActivity : FragmentActivity() {
     private enum class Step { PHONE, CODE, PASSWORD }
     private var step = Step.PHONE
 
+    private val authListener: (TdApi.AuthorizationState?) -> Unit =
+        { state -> runOnUiThread { applyState(state) } }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityLoginBinding.inflate(layoutInflater)
@@ -25,7 +28,7 @@ class LoginActivity : FragmentActivity() {
         binding.nextButton.setTextColor(0xFFFFFFFF.toInt())
         binding.nextButton.setOnClickListener { onNext() }
 
-        TdClient.onAuthStateChanged = { state -> runOnUiThread { applyState(state) } }
+        TdClient.addAuthListener(authListener)
         applyState(TdClient.authState)
     }
 
@@ -72,6 +75,6 @@ class LoginActivity : FragmentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        TdClient.onAuthStateChanged = null
+        TdClient.removeAuthListener(authListener)
     }
 }

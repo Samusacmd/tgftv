@@ -179,7 +179,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         title = arguments?.getString("title") ?: "Contenuti"
 
         val ctx = requireContext()
-        val chat = TdClient.chats.firstOrNull { it.id == chatId }
+        val chat = TdClient.findChat(chatId)
         val isChannel = (chat?.type as? TdApi.ChatTypeSupergroup)?.isChannel == true
         val canWrite = when {
             forumTopicId != 0 -> Settings.writeFlag(ctx, "forum", true)

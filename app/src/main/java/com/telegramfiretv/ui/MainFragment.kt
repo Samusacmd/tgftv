@@ -15,6 +15,7 @@ class MainFragment : BrowseSupportFragment() {
     private val thumbs = ThumbLoader()
     private val rowsAdapter = ArrayObjectAdapter(ListRowPresenter())
     private val chatsAdapter = ArrayObjectAdapter(CardPresenter(thumbs))
+    private val chatsListener: () -> Unit = { activity?.runOnUiThread { refreshChats() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,7 +35,7 @@ class MainFragment : BrowseSupportFragment() {
             )
         }
 
-        TdClient.onChatsChanged = { activity?.runOnUiThread { refreshChats() } }
+        TdClient.addChatsListener(chatsListener)
         TdClient.loadChats(200)
     }
 
@@ -56,6 +57,6 @@ class MainFragment : BrowseSupportFragment() {
     override fun onDestroy() {
         super.onDestroy()
         thumbs.stop()
-        TdClient.onChatsChanged = null
+        TdClient.removeChatsListener(chatsListener)
     }
 }

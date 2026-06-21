@@ -19,6 +19,7 @@ class ChatGridFragment : VerticalGridSupportFragment() {
     private lateinit var chatsAdapter: ArrayObjectAdapter
     private var grid = false
     private var listName = "main"
+    private val chatsListener: () -> Unit = { activity?.runOnUiThread { refresh() } }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -47,7 +48,7 @@ class ChatGridFragment : VerticalGridSupportFragment() {
             )
         }
 
-        TdClient.onChatsChanged = { activity?.runOnUiThread { refresh() } }
+        TdClient.addChatsListener(chatsListener)
         TdClient.loadChats(200)
         refresh()
     }
@@ -61,7 +62,7 @@ class ChatGridFragment : VerticalGridSupportFragment() {
     override fun onDestroy() {
         super.onDestroy()
         thumbs.stop()
-        TdClient.onChatsChanged = null
+        TdClient.removeChatsListener(chatsListener)
     }
 }
 
