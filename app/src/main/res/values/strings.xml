@@ -4,6 +4,8 @@
     <string name="hint_phone">Numero (es. +39…)</string>
     <string name="hint_code">Codice ricevuto</string>
     <string name="hint_password">Password 2FA</string>
+    <string name="hint_email">Email</string>
+    <string name="hint_email_code">Codice ricevuto via email</string>
     <string name="action_next">Avanti</string>
     <string name="loading">Caricamento…</string>
 </resources>

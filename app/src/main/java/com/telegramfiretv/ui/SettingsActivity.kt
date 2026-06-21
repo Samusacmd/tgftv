@@ -57,9 +57,22 @@ object Settings {
         p(c).edit().putBoolean("write_$key", n).apply(); return n
     }
 
-    fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
-    fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
-    fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
+    fun savedPosition(c: Context, key: String): Long = p(c).getLong("pos_$key", 0L)
+    fun savePosition(c: Context, key: String, ms: Long) {
+        p(c).edit().putLong("pos_$key", ms).apply()
+        pruneOldPositions(c)
+    }
+    fun clearPosition(c: Context, key: String) { p(c).edit().remove("pos_$key").apply() }
+
+    /** Evita che le posizioni salvate si accumulino all'infinito: tiene al massimo 300 voci. */
+    private fun pruneOldPositions(c: Context) {
+        val prefs = p(c)
+        val keys = prefs.all.keys.filter { it.startsWith("pos_") }
+        if (keys.size <= 300) return
+        val edit = prefs.edit()
+        keys.take(keys.size - 300).forEach { edit.remove(it) }
+        edit.apply()
+    }
 
     /** Riproduzione in streaming (senza attendere il download completo). Sperimentale. */
     fun streamingEnabled(c: Context): Boolean = p(c).getBoolean("streaming_enabled", true)
@@ -162,8 +175,7 @@ class SettingsActivity : FragmentActivity() {
         val refreshBtn = makeButton()
         refreshBtn.text = "Aggiorna chat"
         refreshBtn.setOnClickListener {
-            MediaListActivity.cache = null
-            MediaListActivity.cacheChatId = -1
+            MediaListActivity.clearCache()
             TdClient.loadChats(200)
             Toast.makeText(this, "Chat aggiornate", Toast.LENGTH_SHORT).show()
             refreshBtn.text = "Aggiorna chat  ✓"
@@ -173,8 +185,7 @@ class SettingsActivity : FragmentActivity() {
         val cacheBtn = makeButton()
         cacheBtn.text = "Svuota cache"
         cacheBtn.setOnClickListener {
-            MediaListActivity.cache = null
-            MediaListActivity.cacheChatId = -1
+            MediaListActivity.clearCache()
             cacheBtn.text = "Svuoto…"
             TdClient.clearCache { obj ->
                 val mb = if (obj is TdApi.StorageStatistics) obj.size / (1024 * 1024) else -1L
@@ -193,13 +204,29 @@ class SettingsActivity : FragmentActivity() {
         }
         root.addView(writeBtn)
 
+        val logoutBtn = makeButton()
+        logoutBtn.text = "Disconnetti account"
+        logoutBtn.setOnClickListener {
+            if (logoutBtn.text.startsWith("Conferma")) {
+                MediaListActivity.clearCache()
+                TdClient.logout()
+                val i = android.content.Intent(this, LoginActivity::class.java)
+                i.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                startActivity(i)
+            } else {
+                logoutBtn.text = "Conferma disconnessione?"
+            }
+        }
+        root.addView(logoutBtn)
+
         // Scorrimento rapido: dal primo elemento premendo SU si salta all'ultimo (e
         // dall'ultimo premendo GIÙ si torna al primo). Così le impostazioni in fondo si
         // raggiungono subito; la ScrollView segue automaticamente il focus.
         chatViewBtn.id = View.generateViewId()
-        writeBtn.id = View.generateViewId()
-        chatViewBtn.nextFocusUpId = writeBtn.id
-        writeBtn.nextFocusDownId = chatViewBtn.id
+        logoutBtn.id = View.generateViewId()
+        chatViewBtn.nextFocusUpId = logoutBtn.id
+        logoutBtn.nextFocusDownId = chatViewBtn.id
 
         setContentView(ScrollView(this).apply { addView(root) })
         chatViewBtn.requestFocus()

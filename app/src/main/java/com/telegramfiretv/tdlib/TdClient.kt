@@ -10,6 +10,7 @@ object TdClient {
 
     private var client: Client? = null
     private lateinit var dbDir: String
+    private var dbKey: ByteArray = ByteArray(0)
 
     @Volatile
     var authState: TdApi.AuthorizationState? = null
@@ -42,8 +43,30 @@ object TdClient {
     fun init(context: Context) {
         if (client != null) return
         dbDir = context.filesDir.absolutePath + "/tdlib"
+        dbKey = loadOrCreateDbKey(context)
         Client.setLogMessageHandler(0) { _, _ -> }
         client = Client.create({ obj -> onResult(obj) }, null, null)
+    }
+
+    /**
+     * Chiave di cifratura del database TDLib. Per le NUOVE installazioni genera una chiave
+     * casuale, così la sessione su disco è cifrata. Per le installazioni già esistenti
+     * (cartella tdlib già presente, creata in chiaro dalle versioni precedenti) mantiene la
+     * chiave vuota, altrimenti TDLib non riuscirebbe ad aprire il database e perderesti il
+     * login già fatto. La scelta viene memorizzata e riusata ai successivi avvii.
+     */
+    private fun loadOrCreateDbKey(context: Context): ByteArray {
+        val prefs = context.getSharedPreferences("tgftv_secure", Context.MODE_PRIVATE)
+        prefs.getString("db_key", null)?.let {
+            return android.util.Base64.decode(it, android.util.Base64.NO_WRAP)
+        }
+        val dbExists = java.io.File(dbDir).exists()
+        val key = if (dbExists) ByteArray(0)
+                  else ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        prefs.edit()
+            .putString("db_key", android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP))
+            .apply()
+        return key
     }
 
     private fun applyPositions(chatId: Long, positions: Array<TdApi.ChatPosition>) {
@@ -101,23 +124,70 @@ object TdClient {
 
             TdApi.UpdateMessageContent.CONSTRUCTOR ->
                 for (l in messagesListeners) l((obj as TdApi.UpdateMessageContent).chatId)
+
+            TdApi.UpdateChatTitle.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatTitle
+                synchronized(chats) { chats.firstOrNull { it.id == u.chatId }?.title = u.title }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatPhoto.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatPhoto
+                synchronized(chats) { chats.firstOrNull { it.id == u.chatId }?.photo = u.photo }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatLastMessage.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatLastMessage
+                synchronized(chats) {
+                    chats.firstOrNull { it.id == u.chatId }?.lastMessage = u.lastMessage
+                    applyPositions(u.chatId, u.positions)
+                }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatReadInbox.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatReadInbox
+                synchronized(chats) {
+                    chats.firstOrNull { it.id == u.chatId }?.let {
+                        it.unreadCount = u.unreadCount
+                        it.lastReadInboxMessageId = u.lastReadInboxMessageId
+                    }
+                }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateDeleteMessages.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateDeleteMessages
+                // Solo le cancellazioni definitive (non lo sfratto dalla cache) interessano la UI.
+                if (u.isPermanent) for (l in messagesListeners) l(u.chatId)
+            }
         }
     }
 
     private fun handleAuthState(state: TdApi.AuthorizationState) {
         authState = state
-        if (state.constructor == TdApi.AuthorizationStateWaitTdlibParameters.CONSTRUCTOR) {
-            val params = TdApi.SetTdlibParameters()
-            params.databaseDirectory = dbDir
-            params.useMessageDatabase = true
-            params.useSecretChats = false
-            params.apiId = BuildConfig.API_ID
-            params.apiHash = BuildConfig.API_HASH
-            params.systemLanguageCode = "it"
-            params.deviceModel = "Fire TV"
-            params.applicationVersion = "1.0"
-            params.databaseEncryptionKey = ByteArray(0)
-            client?.send(params) {}
+        when (state.constructor) {
+            TdApi.AuthorizationStateWaitTdlibParameters.CONSTRUCTOR -> {
+                val params = TdApi.SetTdlibParameters()
+                params.databaseDirectory = dbDir
+                params.useMessageDatabase = true
+                params.useSecretChats = false
+                params.apiId = BuildConfig.API_ID
+                params.apiHash = BuildConfig.API_HASH
+                params.systemLanguageCode = "it"
+                params.deviceModel = "Fire TV"
+                params.applicationVersion = "1.0"
+                params.databaseEncryptionKey = dbKey
+                client?.send(params) {}
+            }
+            TdApi.AuthorizationStateClosed.CONSTRUCTOR -> {
+                // Dopo un logout (o chiusura) il client è inutilizzabile: svuotiamo lo stato in
+                // memoria e ne creiamo uno nuovo, che ripartirà dal flusso di login.
+                synchronized(chats) { chats.clear(); mainOrder.clear(); archiveOrder.clear() }
+                synchronized(users) { users.clear() }
+                client = Client.create({ obj -> onResult(obj) }, null, null)
+            }
         }
         for (l in authListeners) l(state)
     }
@@ -132,6 +202,18 @@ object TdClient {
 
     fun sendPassword(password: String) {
         client?.send(TdApi.CheckAuthenticationPassword(password)) {}
+    }
+
+    fun sendEmailAddress(email: String) {
+        client?.send(TdApi.SetAuthenticationEmailAddress(email)) {}
+    }
+
+    fun sendEmailCode(code: String) {
+        client?.send(TdApi.CheckAuthenticationEmailCode(TdApi.EmailAddressAuthenticationCode(code))) {}
+    }
+
+    fun logout() {
+        client?.send(TdApi.LogOut()) {}
     }
 
     fun loadChats(limit: Int = 50) {

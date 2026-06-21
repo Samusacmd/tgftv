@@ -48,6 +48,8 @@ class BotChatActivity : FragmentActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { loadAndRender() }
     private var emptyRetries = 5
+    private var lastSig: String = ""
+    private var lastNewestId: Long = 0L
     private val messagesListener: (Long) -> Unit =
         { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
 
@@ -133,15 +135,20 @@ class BotChatActivity : FragmentActivity() {
         val type = chat.type
         if (type is TdApi.ChatTypePrivate) {
             TdClient.getUserFullInfo(type.userId) { obj ->
-                if (obj is TdApi.UserFullInfo) {
-                    val info = obj.botInfo
-                    runOnUiThread {
+                runOnUiThread {
+                    if (obj is TdApi.UserFullInfo) {
+                        val info = obj.botInfo
                         isBot = info != null
                         botCommands = info?.commands?.toList() ?: emptyList()
                         val canWrite = if (isBot) Settings.writeFlag(this, "bots", true)
                                        else Settings.writeFlag(this, "private", true)
                         inputRow.visibility = if (canWrite) View.VISIBLE else View.GONE
                         renderWithSenders(lastMessages, true)
+                    } else {
+                        // Info non disponibili (es. errore di rete): trattiamo come chat privata
+                        // normale e rispettiamo comunque l'impostazione di scrittura.
+                        inputRow.visibility =
+                            if (Settings.writeFlag(this, "private", true)) View.VISIBLE else View.GONE
                     }
                 }
             }
@@ -150,19 +157,44 @@ class BotChatActivity : FragmentActivity() {
 
     private fun loadAndRender() {
         val cb: (TdApi.Object) -> Unit = { result ->
-            val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+            val incoming = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             runOnUiThread {
-                if (msgs.isEmpty() && emptyRetries > 0) {
+                if (incoming.isEmpty() && lastMessages.isEmpty() && emptyRetries > 0) {
                     emptyRetries--
                     handler.postDelayed({ loadAndRender() }, 500)
                     return@runOnUiThread
                 }
-                lastMessages = msgs
-                renderWithSenders(msgs, true)
+                // Unisce gli ultimi messaggi con quelli già caricati (anche più vecchi via
+                // "Messaggi precedenti"), senza buttarli via, e togliendo quelli cancellati di recente.
+                lastMessages = if (lastMessages.isEmpty()) incoming else mergeMessages(lastMessages, incoming)
+                val newestId = lastMessages.firstOrNull()?.id ?: 0L
+                val sig = "${lastMessages.size}|$newestId"
+                if (sig == lastSig) return@runOnUiThread     // nulla di nuovo: niente re-render (no flicker)
+                val grew = newestId > lastNewestId
+                lastSig = sig
+                lastNewestId = newestId
+                renderWithSenders(lastMessages, scrollBottom = grew)
             }
         }
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, 0L, 25, cb)
         else TdClient.getChatHistory(chatId, 0L, 25, cb)
+    }
+
+    /** Fonde i nuovi messaggi (più recenti) con quelli già caricati e rimuove quelli cancellati
+     *  che ricadono nella finestra appena riletta. Risultato ordinato dal più recente. */
+    private fun mergeMessages(old: List<TdApi.Message>, incoming: List<TdApi.Message>): List<TdApi.Message> {
+        if (incoming.isEmpty()) return old
+        val incomingIds = incoming.mapTo(HashSet()) { it.id }
+        val minIncoming = incoming.minOf { it.id }
+        val byId = LinkedHashMap<Long, TdApi.Message>()
+        for (m in incoming) byId[m.id] = m
+        for (m in old) {
+            if (byId.containsKey(m.id)) continue
+            // Nel range della pagina riletta ma non più presente => cancellato: lo lasciamo fuori.
+            if (m.id >= minIncoming && m.id !in incomingIds) continue
+            byId[m.id] = m
+        }
+        return byId.values.sortedByDescending { it.id }
     }
 
     private fun loadOlder() {
@@ -171,7 +203,8 @@ class BotChatActivity : FragmentActivity() {
             val more = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             runOnUiThread {
                 if (more.isNotEmpty()) {
-                    lastMessages = lastMessages + more
+                    lastMessages = (lastMessages + more).distinctBy { it.id }.sortedByDescending { it.id }
+                    lastSig = "${lastMessages.size}|${lastMessages.firstOrNull()?.id ?: 0L}"
                     renderWithSenders(lastMessages, false)
                 } else {
                     Toast.makeText(this, "Nessun messaggio precedente", Toast.LENGTH_SHORT).show()

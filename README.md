@@ -25,4 +25,9 @@ Client Telegram per Fire TV / Android TV, compilato nel cloud con GitHub Actions
 - Streaming senza scaricare tutto (SPERIMENTALE, default No).
 
 ## Aggiornare TDLib
-Modifica `.tdlib-version` (es. `master-1` → `master-2`) per forzare la ricompilazione.
+Modifica `.tdlib-version` (es. `master-2` → `master-3`) per forzare la ricompilazione.
+
+Per build riproducibili conviene **fissare** una versione di TDLib: dopo una build andata
+a buon fine, metti in `.tdlib-commit` l'hash del commit di `tdlib/td` che vuoi bloccare
+(al posto di `master`). Da quel momento la CI userà sempre quel commit; per aggiornare,
+cambia l'hash (o rimetti `master` per tornare all'ultimo disponibile).
