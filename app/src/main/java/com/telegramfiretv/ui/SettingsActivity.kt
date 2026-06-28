@@ -3,6 +3,7 @@ package com.telegramfiretv.ui
 import android.content.Context
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -56,9 +57,22 @@ object Settings {
         p(c).edit().putBoolean("write_$key", n).apply(); return n
     }
 
-    fun savedPosition(c: Context, fileId: Int): Long = p(c).getLong("pos_$fileId", 0L)
-    fun savePosition(c: Context, fileId: Int, ms: Long) { p(c).edit().putLong("pos_$fileId", ms).apply() }
-    fun clearPosition(c: Context, fileId: Int) { p(c).edit().remove("pos_$fileId").apply() }
+    fun savedPosition(c: Context, key: String): Long = p(c).getLong("pos_$key", 0L)
+    fun savePosition(c: Context, key: String, ms: Long) {
+        p(c).edit().putLong("pos_$key", ms).apply()
+        pruneOldPositions(c)
+    }
+    fun clearPosition(c: Context, key: String) { p(c).edit().remove("pos_$key").apply() }
+
+    /** Evita che le posizioni salvate si accumulino all'infinito: tiene al massimo 300 voci. */
+    private fun pruneOldPositions(c: Context) {
+        val prefs = p(c)
+        val keys = prefs.all.keys.filter { it.startsWith("pos_") }
+        if (keys.size <= 300) return
+        val edit = prefs.edit()
+        keys.take(keys.size - 300).forEach { edit.remove(it) }
+        edit.apply()
+    }
 
     /** Riproduzione in streaming (senza attendere il download completo). Sperimentale. */
     fun streamingEnabled(c: Context): Boolean = p(c).getBoolean("streaming_enabled", true)
@@ -66,17 +80,15 @@ object Settings {
         val n = !streamingEnabled(c); p(c).edit().putBoolean("streaming_enabled", n).apply(); return n
     }
 
-    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (5-60, step 5). */
+    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (5-120, step 5). */
     fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 5)
     fun adjustStreamingBuffer(c: Context, deltaSec: Int): Int {
-        val v = (streamingBufferSec(c) + deltaSec).coerceIn(5, 60)
+        val v = (streamingBufferSec(c) + deltaSec).coerceIn(5, 120)
         p(c).edit().putInt("streaming_buffer_sec", v).apply(); return v
     }
 }
 
 class SettingsActivity : FragmentActivity() {
-    private lateinit var settingsRoot: LinearLayout
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -161,8 +173,7 @@ class SettingsActivity : FragmentActivity() {
         val refreshBtn = makeButton()
         refreshBtn.text = "Aggiorna chat"
         refreshBtn.setOnClickListener {
-            MediaListActivity.cache = null
-            MediaListActivity.cacheChatId = -1
+            MediaListActivity.clearCache()
             TdClient.loadChats(200)
             Toast.makeText(this, "Chat aggiornate", Toast.LENGTH_SHORT).show()
             refreshBtn.text = "Aggiorna chat  ✓"
@@ -172,8 +183,7 @@ class SettingsActivity : FragmentActivity() {
         val cacheBtn = makeButton()
         cacheBtn.text = "Svuota cache"
         cacheBtn.setOnClickListener {
-            MediaListActivity.cache = null
-            MediaListActivity.cacheChatId = -1
+            MediaListActivity.clearCache()
             cacheBtn.text = "Svuoto…"
             TdClient.clearCache { obj ->
                 val mb = if (obj is TdApi.StorageStatistics) obj.size / (1024 * 1024) else -1L
@@ -192,35 +202,35 @@ class SettingsActivity : FragmentActivity() {
         }
         root.addView(writeBtn)
 
-        setContentView(ScrollView(this).apply { addView(root) })
-        settingsRoot = root
-        chatViewBtn.requestFocus()
-    }
-
-    /**
-     * Tasti CANALE SU/GIÙ del telecomando: saltano direttamente alla prima o ultima
-     * opzione della pagina, evitando di dover scorrere bottone per bottone con il D-pad.
-     */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.action == KeyEvent.ACTION_DOWN) {
-            when (event.keyCode) {
-                KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
-                    focusableChild(last = true)?.requestFocus()
-                    return true
-                }
-                KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
-                    focusableChild(last = false)?.requestFocus()
-                    return true
-                }
+        val logoutBtn = makeButton()
+        logoutBtn.text = "Disconnetti account"
+        logoutBtn.setTextColor(0xFFFF6B6B.toInt())
+        logoutBtn.setOnClickListener {
+            if (logoutBtn.text.startsWith("Conferma")) {
+                MediaListActivity.clearCache()
+                TdClient.logout()
+                val i = android.content.Intent(this, LoginActivity::class.java)
+                i.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                    android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                startActivity(i)
+            } else {
+                logoutBtn.text = "Conferma disconnessione?"
+                logoutBtn.setBackgroundColor(0xFFB23A3A.toInt())
+                logoutBtn.setTextColor(0xFFFFFFFF.toInt())
             }
         }
-        return super.dispatchKeyEvent(event)
-    }
+        root.addView(logoutBtn)
 
-    private fun focusableChild(last: Boolean): android.view.View? {
-        val children = (0 until settingsRoot.childCount).map { settingsRoot.getChildAt(it) }
-            .filter { it.isFocusable }
-        return if (last) children.lastOrNull() else children.firstOrNull()
+        // Scorrimento rapido: dal primo elemento premendo SU si salta all'ultimo (e
+        // dall'ultimo premendo GIÙ si torna al primo). Così le impostazioni in fondo si
+        // raggiungono subito; la ScrollView segue automaticamente il focus.
+        chatViewBtn.id = View.generateViewId()
+        logoutBtn.id = View.generateViewId()
+        chatViewBtn.nextFocusUpId = logoutBtn.id
+        logoutBtn.nextFocusDownId = chatViewBtn.id
+
+        setContentView(ScrollView(this).apply { addView(root) })
+        chatViewBtn.requestFocus()
     }
 
     private fun makeButton(): Button {
