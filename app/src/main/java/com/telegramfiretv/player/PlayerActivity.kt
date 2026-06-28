@@ -55,6 +55,7 @@ class PlayerActivity : FragmentActivity() {
     private var index: Int = 0
 
     private var targetFileId: Int = -1
+    private var posKey: String = ""
     private var label: String = ""
     private var isAudio = false
     private var isPhoto = false
@@ -67,7 +68,20 @@ class PlayerActivity : FragmentActivity() {
     private var stopped = false
 
     private val handler = Handler(Looper.getMainLooper())
-    private var pendingDelete: Runnable? = null
+    private val pendingDeletes = mutableListOf<Runnable>()
+
+    /** Chiave stabile per la posizione di ripresa: usa l'id univoco remoto del file
+     *  (persistente tra sessioni), con ripiego sull'id locale se non disponibile. */
+    private fun keyFor(file: TdApi.File): String = file.remote.uniqueId.ifEmpty { "fid_${file.id}" }
+
+    /** Programma la cancellazione differita di un file (cache di streaming già abbandonato). */
+    private fun scheduleDelete(fileId: Int) {
+        val r = object : Runnable {
+            override fun run() { pendingDeletes.remove(this); TdClient.deleteFile(fileId) }
+        }
+        pendingDeletes.add(r)
+        handler.postDelayed(r, 30_000)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -130,6 +144,7 @@ class PlayerActivity : FragmentActivity() {
 
     private fun applyCurrent() {
         targetFileId = fileIds.getOrElse(index) { -1 }
+        posKey = ""
         label = labels.getOrElse(index) { "" }
         val kind = kinds.getOrElse(index) { 0 }
         isAudio = kind == 1
@@ -144,15 +159,13 @@ class PlayerActivity : FragmentActivity() {
     /** Cambia file restando nella stessa schermata (niente rilancio: evita di azzerare i callback). */
     private fun switchTo(i: Int) {
         player?.let {
-            if (started && it.playbackState != Player.STATE_ENDED) {
-                Settings.savePosition(this, targetFileId, it.currentPosition)
+            if (started && it.playbackState != Player.STATE_ENDED && posKey.isNotEmpty()) {
+                Settings.savePosition(this, posKey, it.currentPosition)
             }
         }
         // Stesso motivo di onStop: in streaming il download del file lasciato va sempre
         // fermato, altrimenti compete con quello del nuovo file appena selezionato.
         if (targetFileId >= 0 && (streamingActive || !started)) TdClient.cancelDownload(targetFileId)
-        keepAliveRunnable?.let { handler.removeCallbacks(it) }
-        keepAliveRunnable = null
         index = i
         applyCurrent()
         startItem()
@@ -223,7 +236,7 @@ class PlayerActivity : FragmentActivity() {
                             // Lo streaming ha fallito: salviamo la posizione raggiunta e ricadiamo
                             // sul download classico, riprendendo da dove si era interrotto.
                             val resumeAt = exo.currentPosition.coerceAtLeast(0L)
-                            Settings.savePosition(this@PlayerActivity, targetFileId, resumeAt)
+                            if (posKey.isNotEmpty()) Settings.savePosition(this@PlayerActivity, posKey, resumeAt)
                             streamingFallback = true
                             streamingActive = false
                             started = false
@@ -251,8 +264,10 @@ class PlayerActivity : FragmentActivity() {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
-                        Settings.clearPosition(this@PlayerActivity, targetFileId)
-                        finish()
+                        if (posKey.isNotEmpty()) Settings.clearPosition(this@PlayerActivity, posKey)
+                        // Auto-avanzamento: se c'è un file successivo nella lista passa a quello,
+                        // altrimenti (ultimo elemento) chiude il player.
+                        if (index < fileIds.size - 1) goNext() else finish()
                     }
                 }
             })
@@ -266,10 +281,9 @@ class PlayerActivity : FragmentActivity() {
             return
         }
 
-        // Usiamo addFileListener (lista condivisa, sicura) invece del singolo campo
-        // onFileUpdated: quest'ultimo viene sovrascritto anche da altri punti dell'app
-        // (es. download di miniature/sticker), causando catene di closure rotte che
-        // potevano portare a crash imprevisti durante la riproduzione.
+        // Usiamo addFileListener (lista condivisa, sicura): ogni schermata registra il
+        // proprio ascoltatore in modo indipendente, senza interferire con i download di
+        // miniature/sticker o con gli altri ascoltatori attivi nell'app.
         fileListener?.let { TdClient.removeFileListener(it) }
         val listener: (TdApi.File) -> Unit = { file ->
             if (!stopped && file.id == targetFileId) runOnUiThread { onFileProgress(file) }
@@ -326,6 +340,7 @@ class PlayerActivity : FragmentActivity() {
     private fun startStreaming(file: TdApi.File, knownSize: Long) {
         if (started || stopped) return
         val exo = player ?: return
+        posKey = keyFor(file)
         setStatus("Avvio streaming…")
 
         val factory = TdDataSource.Factory(targetFileId, knownSize, estimatedBufferBytes())
@@ -337,38 +352,15 @@ class PlayerActivity : FragmentActivity() {
 
         val prev = lastPlayedFileId
         lastPlayedFileId = targetFileId
-        if (prev >= 0 && prev != targetFileId) {
-            val r = Runnable { TdClient.deleteFile(prev) }
-            pendingDelete = r
-            handler.postDelayed(r, 30_000)
-        }
+        // Solo in streaming: il file lasciato è una cache temporanea, lo cancelliamo dopo un po'.
+        if (prev >= 0 && prev != targetFileId) scheduleDelete(prev)
 
         exo.setMediaSource(mediaSource)
         exo.prepare()
-        val pos = Settings.savedPosition(this, targetFileId)
+        val pos = Settings.savedPosition(this, posKey)
         if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
         if (isAudio) binding.playerView.showController()
-
-        // Continua a sollecitare il download anche se la riproduzione viene messa in
-        // pausa: senza questo, il buffer si riempie solo mentre si guarda, e riprendere
-        // dopo una pausa lunga richiede di nuovo attesa invece di trovare già pronto
-        // quanto scaricato nel frattempo.
-        startBackgroundDownloadKeepAlive()
-    }
-
-    private var keepAliveRunnable: Runnable? = null
-    private fun startBackgroundDownloadKeepAlive() {
-        keepAliveRunnable?.let { handler.removeCallbacks(it) }
-        val r = object : Runnable {
-            override fun run() {
-                if (stopped || !streamingActive) return
-                TdClient.downloadFileRange(targetFileId, 0, 0)
-                handler.postDelayed(this, 5_000)
-            }
-        }
-        keepAliveRunnable = r
-        handler.postDelayed(r, 5_000)
     }
 
     private fun onFileProgress(file: TdApi.File) {
@@ -376,6 +368,7 @@ class PlayerActivity : FragmentActivity() {
         if (streamingActive) return // gestito internamente da TdDataSource
         val local = file.local
         if (local.isDownloadingCompleted && local.path.isNotEmpty()) {
+            posKey = keyFor(file)
             if (isPhoto) showPhoto(local.path) else play(local.path)
         } else if (file.size > 0) {
             val pct = (100.0 * local.downloadedSize / file.size).toInt()
@@ -415,17 +408,14 @@ class PlayerActivity : FragmentActivity() {
         status.visibility = View.GONE
         val exo = player ?: return
 
-        val prev = lastPlayedFileId
+        // In download classico NON cancelliamo il file precedente: resta in cache, così
+        // rivederlo subito non richiede di riscaricarlo. (La pulizia delle cache di streaming
+        // avviene invece in startStreaming/onStop.)
         lastPlayedFileId = targetFileId
-        if (prev >= 0 && prev != targetFileId) {
-            val r = Runnable { TdClient.deleteFile(prev) }
-            pendingDelete = r
-            handler.postDelayed(r, 30_000)
-        }
 
         exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
         exo.prepare()
-        val pos = Settings.savedPosition(this, targetFileId)
+        val pos = Settings.savedPosition(this, posKey)
         if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
         if (isAudio) binding.playerView.showController()
@@ -465,13 +455,14 @@ class PlayerActivity : FragmentActivity() {
     override fun onStop() {
         super.onStop()
         stopped = true
-        pendingDelete?.let { handler.removeCallbacks(it) }
-        pendingDelete = null
-        keepAliveRunnable?.let { handler.removeCallbacks(it) }
-        keepAliveRunnable = null
+        // Esegue subito le cancellazioni differite delle cache di streaming già abbandonate,
+        // invece di lasciarle in sospeso (evita sia il ritardo sia la fuga di un file).
+        val toDelete = pendingDeletes.toList()
+        pendingDeletes.clear()
+        toDelete.forEach { handler.removeCallbacks(it); it.run() }
         player?.let {
-            if (started && it.playbackState != Player.STATE_ENDED) {
-                Settings.savePosition(this, targetFileId, it.currentPosition)
+            if (started && it.playbackState != Player.STATE_ENDED && posKey.isNotEmpty()) {
+                Settings.savePosition(this, posKey, it.currentPosition)
             }
         }
         fileListener?.let { TdClient.removeFileListener(it) }
