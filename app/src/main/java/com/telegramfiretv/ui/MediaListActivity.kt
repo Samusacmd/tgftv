@@ -107,18 +107,9 @@ class MediaListActivity : FragmentActivity() {
     private var mode = "grid"
 
     companion object {
-        private data class CacheEntry(val showAll: Boolean, val items: List<MediaEntry>)
-        private val cacheMap = java.util.concurrent.ConcurrentHashMap<Long, CacheEntry>()
-
-        fun cached(chatId: Long, showAll: Boolean): List<MediaEntry>? {
-            val e = cacheMap[chatId] ?: return null
-            return if (e.showAll == showAll) e.items else null
-        }
-        fun putCache(chatId: Long, showAll: Boolean, items: List<MediaEntry>) {
-            cacheMap[chatId] = CacheEntry(showAll, items)
-        }
-        fun invalidate(chatId: Long) { cacheMap.remove(chatId) }
-        fun clearCache() { cacheMap.clear() }
+        var cache: List<MediaEntry>? = null
+        var cacheChatId: Long = -1
+        var cacheShowAll: Boolean = true
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -177,13 +168,6 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var lastError: String? = null
     private var emptyRetries = 8
     private var writeOrb = false
-    private var loadComplete = false
-
-    private val refreshHandler = android.os.Handler(android.os.Looper.getMainLooper())
-    private var pendingMerge: Runnable? = null
-    private val messagesListener: (Long) -> Unit = { cid ->
-        if (cid == chatId) activity?.runOnUiThread { onChatChanged() }
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -195,7 +179,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         title = arguments?.getString("title") ?: "Contenuti"
 
         val ctx = requireContext()
-        val chat = TdClient.findChat(chatId)
+        val chat = TdClient.chats.firstOrNull { it.id == chatId }
         val isChannel = (chat?.type as? TdApi.ChatTypeSupergroup)?.isChannel == true
         val canWrite = when {
             forumTopicId != 0 -> Settings.writeFlag(ctx, "forum", true)
@@ -231,7 +215,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                     val ids = collected.map { it.fileId }.toIntArray()
                     val labs = collected.map { it.title }.toTypedArray()
                     val kinds = collected.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
-                    val idx = collected.indexOfFirst { it === item }.coerceAtLeast(0)
+                    val idx = collected.indexOf(item).coerceAtLeast(0)
                     startActivity(
                         Intent(requireContext(), PlayerActivity::class.java)
                             .putExtra(PlayerActivity.EXTRA_FILE_IDS, ids)
@@ -244,7 +228,6 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         }
 
         TdClient.openChat(chatId)
-        TdClient.addMessagesListener(messagesListener)
 
         if (forumTopicId == 0) {
             TdClient.getForumTopics(chatId) { result ->
@@ -299,12 +282,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         itemsAdapter = ArrayObjectAdapter(itemPresenter)
         adapter = itemsAdapter
 
-        val cached = if (forumTopicId == 0) MediaListActivity.cached(chatId, showAll) else null
-        if (cached != null) {
+        val cached = MediaListActivity.cache
+        if (forumTopicId == 0 && cached != null && MediaListActivity.cacheChatId == chatId && MediaListActivity.cacheShowAll == showAll) {
             collected.addAll(cached)
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
-            loadComplete = true
         } else {
             loadPage(0L)
         }
@@ -344,7 +326,6 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     }
 
     private fun finishLoading() {
-        loadComplete = true
         itemsAdapter.clear()
         if (collected.isEmpty()) {
             val base = if (forumTopicId != 0) "Argomento: 0 media su $scanned msg" else "Vuoto: 0 media su $scanned msg"
@@ -352,39 +333,10 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         } else {
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
-            if (forumTopicId == 0) MediaListActivity.putCache(chatId, showAll, collected.toList())
-        }
-    }
-
-    /** Nuovo/cancellato messaggio nella chat aperta: aggiorniamo (con debounce) senza ricaricare tutto. */
-    private fun onChatChanged() {
-        MediaListActivity.invalidate(chatId)
-        if (!loadComplete) return
-        pendingMerge?.let { refreshHandler.removeCallbacks(it) }
-        val r = Runnable { mergeLatest() }
-        pendingMerge = r
-        refreshHandler.postDelayed(r, 1200)
-    }
-
-    /** Recupera l'ultima pagina e mette in cima i media nuovi (per fileId) non ancora presenti. */
-    private fun mergeLatest() {
-        fetch(0L) { result ->
-            val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
-            activity?.runOnUiThread {
-                if (!isAdded || msgs.isEmpty()) return@runOnUiThread
-                val existing = collected.mapTo(HashSet()) { it.fileId }
-                val fresh = ArrayList<MediaEntry>()
-                for (m in msgs) {
-                    val e = extractMedia(m) ?: continue
-                    if (!showAll && e.type == "Foto") continue
-                    if (e.fileId !in existing) fresh.add(e)
-                }
-                if (fresh.isEmpty()) return@runOnUiThread
-                // I messaggi arrivano dal più recente: inseriti in cima mantengono l'ordine.
-                collected.addAll(0, fresh)
-                itemsAdapter.addAll(0, fresh)
-                title = "${collected.size} contenuti"
-                if (forumTopicId == 0) MediaListActivity.putCache(chatId, showAll, collected.toList())
+            if (forumTopicId == 0) {
+                MediaListActivity.cache = collected.toList()
+                MediaListActivity.cacheChatId = chatId
+                MediaListActivity.cacheShowAll = showAll
             }
         }
     }
@@ -428,8 +380,6 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     override fun onDestroy() {
         super.onDestroy()
         thumbs.stop()
-        TdClient.removeMessagesListener(messagesListener)
-        pendingMerge?.let { refreshHandler.removeCallbacks(it) }
     }
 }
 
