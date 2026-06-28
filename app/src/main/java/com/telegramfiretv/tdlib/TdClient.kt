@@ -10,15 +10,23 @@ object TdClient {
 
     private var client: Client? = null
     private lateinit var dbDir: String
+    private var dbKey: ByteArray = ByteArray(0)
 
     @Volatile
     var authState: TdApi.AuthorizationState? = null
         private set
 
-    var onAuthStateChanged: ((TdApi.AuthorizationState?) -> Unit)? = null
-    var onChatsChanged: (() -> Unit)? = null
-    var onFileUpdated: ((TdApi.File) -> Unit)? = null
-    var onMessagesChanged: ((Long) -> Unit)? = null
+    private val authListeners = CopyOnWriteArrayList<(TdApi.AuthorizationState?) -> Unit>()
+    fun addAuthListener(l: (TdApi.AuthorizationState?) -> Unit) { authListeners.add(l) }
+    fun removeAuthListener(l: (TdApi.AuthorizationState?) -> Unit) { authListeners.remove(l) }
+
+    private val chatsListeners = CopyOnWriteArrayList<() -> Unit>()
+    fun addChatsListener(l: () -> Unit) { chatsListeners.add(l) }
+    fun removeChatsListener(l: () -> Unit) { chatsListeners.remove(l) }
+
+    private val messagesListeners = CopyOnWriteArrayList<(Long) -> Unit>()
+    fun addMessagesListener(l: (Long) -> Unit) { messagesListeners.add(l) }
+    fun removeMessagesListener(l: (Long) -> Unit) { messagesListeners.remove(l) }
 
     private val fileListeners = CopyOnWriteArrayList<(TdApi.File) -> Unit>()
     fun addFileListener(l: (TdApi.File) -> Unit) { fileListeners.add(l) }
@@ -32,8 +40,23 @@ object TdClient {
     fun init(context: Context) {
         if (client != null) return
         dbDir = context.filesDir.absolutePath + "/tdlib"
+        dbKey = loadOrCreateDbKey(context)
         Client.setLogMessageHandler(0) { _, _ -> }
         client = Client.create({ obj -> onResult(obj) }, null, null)
+    }
+
+    private fun loadOrCreateDbKey(context: Context): ByteArray {
+        val prefs = context.getSharedPreferences("tgftv_secure", Context.MODE_PRIVATE)
+        prefs.getString("db_key", null)?.let {
+            return android.util.Base64.decode(it, android.util.Base64.NO_WRAP)
+        }
+        val dbExists = java.io.File(dbDir).exists()
+        val key = if (dbExists) ByteArray(0)
+                  else ByteArray(32).also { java.security.SecureRandom().nextBytes(it) }
+        prefs.edit()
+            .putString("db_key", android.util.Base64.encodeToString(key, android.util.Base64.NO_WRAP))
+            .apply()
+        return key
     }
 
     private fun applyPositions(chatId: Long, positions: Array<TdApi.ChatPosition>) {
@@ -58,7 +81,7 @@ object TdClient {
                     if (chats.none { it.id == chat.id }) chats.add(chat)
                     applyPositions(chat.id, chat.positions)
                 }
-                onChatsChanged?.invoke()
+                for (l in chatsListeners) l()
             }
 
             TdApi.UpdateChatPosition.CONSTRUCTOR -> {
@@ -69,13 +92,12 @@ object TdClient {
                         val map = if (lc == TdApi.ChatListMain.CONSTRUCTOR) mainOrder else archiveOrder
                         if (u.position.order == 0L) map.remove(u.chatId) else map[u.chatId] = u.position.order
                     }
-                    onChatsChanged?.invoke()
+                    for (l in chatsListeners) l()
                 }
             }
 
             TdApi.UpdateFile.CONSTRUCTOR -> {
                 val f = (obj as TdApi.UpdateFile).file
-                onFileUpdated?.invoke(f)
                 for (l in fileListeners) l(f)
             }
 
@@ -85,32 +107,76 @@ object TdClient {
             }
 
             TdApi.UpdateNewMessage.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateNewMessage).message.chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateNewMessage).message.chatId)
 
             TdApi.UpdateMessageEdited.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageEdited).chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateMessageEdited).chatId)
 
             TdApi.UpdateMessageContent.CONSTRUCTOR ->
-                onMessagesChanged?.invoke((obj as TdApi.UpdateMessageContent).chatId)
+                for (l in messagesListeners) l((obj as TdApi.UpdateMessageContent).chatId)
+
+            TdApi.UpdateChatTitle.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatTitle
+                synchronized(chats) { chats.firstOrNull { it.id == u.chatId }?.title = u.title }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatPhoto.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatPhoto
+                synchronized(chats) { chats.firstOrNull { it.id == u.chatId }?.photo = u.photo }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatLastMessage.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatLastMessage
+                synchronized(chats) {
+                    chats.firstOrNull { it.id == u.chatId }?.lastMessage = u.lastMessage
+                    applyPositions(u.chatId, u.positions)
+                }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateChatReadInbox.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateChatReadInbox
+                synchronized(chats) {
+                    chats.firstOrNull { it.id == u.chatId }?.let {
+                        it.unreadCount = u.unreadCount
+                        it.lastReadInboxMessageId = u.lastReadInboxMessageId
+                    }
+                }
+                for (l in chatsListeners) l()
+            }
+
+            TdApi.UpdateDeleteMessages.CONSTRUCTOR -> {
+                val u = obj as TdApi.UpdateDeleteMessages
+                if (u.isPermanent) for (l in messagesListeners) l(u.chatId)
+            }
         }
     }
 
     private fun handleAuthState(state: TdApi.AuthorizationState) {
         authState = state
-        if (state.constructor == TdApi.AuthorizationStateWaitTdlibParameters.CONSTRUCTOR) {
-            val params = TdApi.SetTdlibParameters()
-            params.databaseDirectory = dbDir
-            params.useMessageDatabase = true
-            params.useSecretChats = false
-            params.apiId = BuildConfig.API_ID
-            params.apiHash = BuildConfig.API_HASH
-            params.systemLanguageCode = "it"
-            params.deviceModel = "Fire TV"
-            params.applicationVersion = "1.0"
-            params.databaseEncryptionKey = ByteArray(0)
-            client?.send(params) {}
+        when (state.constructor) {
+            TdApi.AuthorizationStateWaitTdlibParameters.CONSTRUCTOR -> {
+                val params = TdApi.SetTdlibParameters()
+                params.databaseDirectory = dbDir
+                params.useMessageDatabase = true
+                params.useSecretChats = false
+                params.apiId = BuildConfig.API_ID
+                params.apiHash = BuildConfig.API_HASH
+                params.systemLanguageCode = "it"
+                params.deviceModel = "Fire TV"
+                params.applicationVersion = "1.0"
+                params.databaseEncryptionKey = dbKey
+                client?.send(params) {}
+            }
+            TdApi.AuthorizationStateClosed.CONSTRUCTOR -> {
+                synchronized(chats) { chats.clear(); mainOrder.clear(); archiveOrder.clear() }
+                synchronized(users) { users.clear() }
+                client = Client.create({ obj -> onResult(obj) }, null, null)
+            }
         }
-        onAuthStateChanged?.invoke(state)
+        for (l in authListeners) l(state)
     }
 
     fun sendPhone(phone: String) {
@@ -125,7 +191,14 @@ object TdClient {
         client?.send(TdApi.CheckAuthenticationPassword(password)) {}
     }
 
-    /** Disconnette l'account corrente: TDLib gestirà UpdateAuthorizationState fino al logout. */
+    fun sendEmailAddress(email: String) {
+        client?.send(TdApi.SetAuthenticationEmailAddress(email)) {}
+    }
+
+    fun sendEmailCode(code: String) {
+        client?.send(TdApi.CheckAuthenticationEmailCode(TdApi.EmailAddressAuthenticationCode(code))) {}
+    }
+
     fun logout() {
         client?.send(TdApi.LogOut()) {}
     }
@@ -135,7 +208,6 @@ object TdClient {
         client?.send(TdApi.LoadChats(TdApi.ChatListArchive(), limit)) {}
     }
 
-    /** Chat delle tue liste (principale, poi archivio); esclude quelle scoperte dalla ricerca. */
     fun orderedChats(): List<TdApi.Chat> {
         synchronized(chats) {
             val main = chats.filter { mainOrder.containsKey(it.id) }
@@ -146,7 +218,6 @@ object TdClient {
         }
     }
 
-    /** Solo le chat della lista principale. */
     fun orderedMainChats(): List<TdApi.Chat> {
         synchronized(chats) {
             return chats.filter { mainOrder.containsKey(it.id) }
@@ -154,7 +225,6 @@ object TdClient {
         }
     }
 
-    /** Solo le chat archiviate. */
     fun orderedArchiveChats(): List<TdApi.Chat> {
         synchronized(chats) {
             return chats.filter { archiveOrder.containsKey(it.id) && !mainOrder.containsKey(it.id) }
@@ -166,10 +236,14 @@ object TdClient {
         client?.send(TdApi.OpenChat(chatId)) {}
     }
 
+    fun findChat(chatId: Long): TdApi.Chat? = synchronized(chats) { chats.firstOrNull { it.id == chatId } }
+
+    fun cachedUser(userId: Long): TdApi.User? = synchronized(users) { users[userId] }
+
     fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)) { handler(it) }
     }
-    
+
     fun getForumTopics(chatId: Long, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetForumTopics(chatId, "", 0, 0, 0, 100)) { handler(it) }
     }
@@ -186,27 +260,18 @@ object TdClient {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { handler(it) }
     }
 
-    /**
-     * Scarica un intervallo del file con priorità alta, per lo streaming.
-     * offset/limit in byte; TDLib scarica per blocchi a partire da offset.
-     */
     fun downloadFileRange(fileId: Int, offset: Long, limit: Long, handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.DownloadFile(fileId, 32, offset, limit, false)) { handler(it) }
     }
 
-    /** Richiede lo stato corrente del file (per leggere quanto è scaricato in sequenza). */
     fun getFile(fileId: Int, handler: (TdApi.Object) -> Unit) {
         client?.send(TdApi.GetFile(fileId)) { handler(it) }
     }
 
-    /** Scarica un file e chiama [handler] con il path locale una volta completato. */
     fun downloadFilePath(fileId: Int, handler: (String) -> Unit) {
         client?.send(TdApi.DownloadFile(fileId, 32, 0, 0, false)) { obj ->
             val path = (obj as? TdApi.File)?.local?.path ?: ""
             if (path.isNotEmpty()) { handler(path); return@send }
-            // Fallback: ascolta gli aggiornamenti finché il file è scaricato, usando la
-            // lista condivisa fileListeners (sicura per usi concorrenti) invece del
-            // singolo campo onFileUpdated, che altri punti dell'app possono sovrascrivere.
             lateinit var listener: (TdApi.File) -> Unit
             listener = { file ->
                 if (file.id == fileId && file.local.isDownloadingCompleted) {
@@ -234,7 +299,6 @@ object TdClient {
         client?.send(TdApi.GetChat(chatId)) { handler(it) }
     }
 
-    /** Libera i file scaricati gestiti da TDLib. */
     fun clearCache(handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.OptimizeStorage()) { handler(it) }
     }
