@@ -110,6 +110,11 @@ class MediaListActivity : FragmentActivity() {
         var cache: List<MediaEntry>? = null
         var cacheChatId: Long = -1
         var cacheShowAll: Boolean = true
+
+        fun clearCache() {
+            cache = null
+            cacheChatId = -1
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
