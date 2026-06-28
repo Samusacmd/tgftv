@@ -17,6 +17,7 @@ import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -73,6 +74,31 @@ class PlayerActivity : FragmentActivity() {
     /** Chiave stabile per la posizione di ripresa: usa l'id univoco remoto del file
      *  (persistente tra sessioni), con ripiego sull'id locale se non disponibile. */
     private fun keyFor(file: TdApi.File): String = file.remote.uniqueId.ifEmpty { "fid_${file.id}" }
+
+    /**
+     * Ricava un MIME type da passare a ExoPlayer in base all'estensione del nome file.
+     * Serve soprattutto per i contenitori come MKV: senza questo hint, in streaming l'URI
+     * è "tdfile://..." (nessuna estensione) e lo sniffing del formato può fallire. Dare il
+     * MIME giusto fa scegliere subito l'estrattore corretto (es. Matroska) ed evita l'errore
+     * "container malformed" su file che invece sono validi.
+     */
+    private fun guessMimeType(name: String): String? {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return when (ext) {
+            "mkv" -> MimeTypes.VIDEO_MATROSKA
+            "webm" -> MimeTypes.VIDEO_WEBM
+            "mp4", "m4v" -> MimeTypes.VIDEO_MP4
+            "mov" -> MimeTypes.VIDEO_MP4
+            "ts" -> MimeTypes.VIDEO_MP2T
+            "avi" -> MimeTypes.VIDEO_AVI
+            "mp3" -> MimeTypes.AUDIO_MPEG
+            "m4a", "aac" -> MimeTypes.AUDIO_AAC
+            "ogg", "oga", "opus" -> MimeTypes.AUDIO_OPUS
+            "flac" -> MimeTypes.AUDIO_FLAC
+            "wav" -> MimeTypes.AUDIO_WAV
+            else -> null
+        }
+    }
 
     /** Programma la cancellazione differita di un file (cache di streaming già abbandonato). */
     private fun scheduleDelete(fileId: Int) {
@@ -344,8 +370,11 @@ class PlayerActivity : FragmentActivity() {
         setStatus("Avvio streaming…")
 
         val factory = TdDataSource.Factory(targetFileId, knownSize, estimatedBufferBytes())
+        val mimeType = guessMimeType(label)
+        val mediaItemBuilder = MediaItem.Builder().setUri(Uri.parse("tdfile://$targetFileId"))
+        if (mimeType != null) mediaItemBuilder.setMimeType(mimeType)
         val mediaSource = ProgressiveMediaSource.Factory(factory)
-            .createMediaSource(MediaItem.fromUri(Uri.parse("tdfile://$targetFileId")))
+            .createMediaSource(mediaItemBuilder.build())
 
         started = true
         status.visibility = View.GONE
@@ -413,7 +442,10 @@ class PlayerActivity : FragmentActivity() {
         // avviene invece in startStreaming/onStop.)
         lastPlayedFileId = targetFileId
 
-        exo.setMediaItem(MediaItem.fromUri(Uri.fromFile(File(path))))
+        val mimeType = guessMimeType(if (label.isNotEmpty()) label else path)
+        val mediaItemBuilder = MediaItem.Builder().setUri(Uri.fromFile(File(path)))
+        if (mimeType != null) mediaItemBuilder.setMimeType(mimeType)
+        exo.setMediaItem(mediaItemBuilder.build())
         exo.prepare()
         val pos = Settings.savedPosition(this, posKey)
         if (pos > 0) exo.seekTo(pos)
