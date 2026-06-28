@@ -66,16 +66,17 @@ object Settings {
         val n = !streamingEnabled(c); p(c).edit().putBoolean("streaming_enabled", n).apply(); return n
     }
 
-    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (1-10). */
-    fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 3)
-    fun cycleStreamingBuffer(c: Context): Int {
-        val cur = streamingBufferSec(c)
-        val next = when { cur >= 10 -> 1; else -> cur + 1 }
-        p(c).edit().putInt("streaming_buffer_sec", next).apply(); return next
+    /** Buffer minimo prima di avviare la riproduzione, in secondi di download stimato (5-60, step 5). */
+    fun streamingBufferSec(c: Context): Int = p(c).getInt("streaming_buffer_sec", 5)
+    fun adjustStreamingBuffer(c: Context, deltaSec: Int): Int {
+        val v = (streamingBufferSec(c) + deltaSec).coerceIn(5, 60)
+        p(c).edit().putInt("streaming_buffer_sec", v).apply(); return v
     }
 }
 
 class SettingsActivity : FragmentActivity() {
+    private lateinit var settingsRoot: LinearLayout
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -144,9 +145,17 @@ class SettingsActivity : FragmentActivity() {
         root.addView(streamBtn)
 
         val bufferBtn = makeButton()
-        fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s"
+        fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s  ◀ ▶"
         bufferBtn.text = bufferLabel()
-        bufferBtn.setOnClickListener { Settings.cycleStreamingBuffer(this); bufferBtn.text = bufferLabel() }
+        bufferBtn.setOnKeyListener { _, keyCode, event ->
+            if (event.action == KeyEvent.ACTION_DOWN) {
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> { Settings.adjustStreamingBuffer(this, -5); bufferBtn.text = bufferLabel(); true }
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> { Settings.adjustStreamingBuffer(this, +5); bufferBtn.text = bufferLabel(); true }
+                    else -> false
+                }
+            } else false
+        }
         root.addView(bufferBtn)
 
         val refreshBtn = makeButton()
@@ -184,7 +193,34 @@ class SettingsActivity : FragmentActivity() {
         root.addView(writeBtn)
 
         setContentView(ScrollView(this).apply { addView(root) })
+        settingsRoot = root
         chatViewBtn.requestFocus()
+    }
+
+    /**
+     * Tasti CANALE SU/GIÙ del telecomando: saltano direttamente alla prima o ultima
+     * opzione della pagina, evitando di dover scorrere bottone per bottone con il D-pad.
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.action == KeyEvent.ACTION_DOWN) {
+            when (event.keyCode) {
+                KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_PAGE_DOWN -> {
+                    focusableChild(last = true)?.requestFocus()
+                    return true
+                }
+                KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_PAGE_UP -> {
+                    focusableChild(last = false)?.requestFocus()
+                    return true
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun focusableChild(last: Boolean): android.view.View? {
+        val children = (0 until settingsRoot.childCount).map { settingsRoot.getChildAt(it) }
+            .filter { it.isFocusable }
+        return if (last) children.lastOrNull() else children.firstOrNull()
     }
 
     private fun makeButton(): Button {
