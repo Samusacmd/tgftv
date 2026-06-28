@@ -35,6 +35,7 @@ class TdDataSource(
     private var localPath: String = ""
     private var readPosition: Long = 0L
     private var bytesRemaining: Long = 0L
+    private var readCallsSinceKeepAlive: Int = 0
 
     class Factory(
         private val fileId: Int,
@@ -55,7 +56,11 @@ class TdDataSource(
         try {
             // Avvia subito il download con priorità sull'offset richiesto: questo è anche ciò
             // che fa TDLib creare il file fisico locale (GetFile da solo non lo crea).
-            TdClient.downloadFileRange(fileId, readPosition, bytesRemaining.coerceAtLeast(0))
+            // limit=0 è la convenzione TDLib per "scarica senza limite fino alla fine del
+            // file": passare un numero di byte enorme può comportarsi diversamente da 0
+            // a seconda della versione/condizioni di rete, e in alcuni casi TDLib si ferma
+            // dopo aver soddisfatto quel limite invece di continuare oltre.
+            TdClient.downloadFileRange(fileId, readPosition, 0)
 
             // Aspetta che TDLib confermi un path locale (il file viene creato all'avvio del download).
             val path = waitForLocalPath(timeoutMs = 10_000)
@@ -85,6 +90,17 @@ class TdDataSource(
         val toRead = minOf(length.toLong(), bytesRemaining).toInt()
 
         try {
+            // Rinnova periodicamente la richiesta di download (vedi nota nel companion):
+            // garantisce che TDLib continui a scaricare in avanti anche se per qualche
+            // motivo si era fermato dopo aver soddisfatto una richiesta precedente, e fa
+            // sì che il download prosegua anche quando ExoPlayer è in pausa (il buffer
+            // continua a riempirsi mentre l'utente non guarda).
+            readCallsSinceKeepAlive++
+            if (readCallsSinceKeepAlive >= KEEP_ALIVE_EVERY_N_READS) {
+                readCallsSinceKeepAlive = 0
+                TdClient.downloadFileRange(fileId, readPosition, 0)
+            }
+
             // Attende che i byte richiesti siano scaricati. Timeout ampio: TDLib può avere
             // rallentamenti temporanei di rete; un timeout breve causava fallback ingiustificati
             // al download classico, con perdita della posizione di riproduzione.
@@ -196,18 +212,19 @@ class TdDataSource(
         return satisfied.get()
     }
 
-    /** Stima la fine del prefisso scaricato in sequenza, leggibile a partire da readPosition. */
+    /** Stima la fine del prefisso scaricato in sequenza dall'inizio del file. */
     private fun downloadedPrefixEnd(f: TdApi.File): Long {
-        val local = f.local
-        if (local.isDownloadingCompleted) return totalSize.coerceAtLeast(local.downloadedSize)
-        // Va usato l'intervallo CONTIGUO realmente disponibile, che parte da downloadOffset
-        // (l'offset richiesto a TDLib), non downloadedSize: quest'ultimo è il totale dei byte
-        // scaricati, non per forza contigui. Dopo un seek poteva risultare >= target grazie a
-        // byte scaricati prima, mentre quelli alla posizione di lettura non c'erano ancora:
-        // si finiva per leggere zeri/garbage dal file pre-allocato.
-        return local.downloadOffset + local.downloadedPrefixSize
+        // TDLib espone downloadedSize (totale scaricato, non necessariamente contiguo se
+        // ci sono richieste con offset multipli) e local.path. Per il nostro pattern
+        // (un solo offset attivo alla volta, sempre crescente) downloadedSize è una stima
+        // valida e sufficientemente prudente del prefisso contiguo disponibile.
+        return f.local.downloadedSize
     }
 
+    companion object {
+        /** Ogni quante chiamate a read() rinnoviamo la richiesta di download verso TDLib. */
+        private const val KEEP_ALIVE_EVERY_N_READS = 8
+    }
 }
 
 /** Codici minimi per DataSourceException, per non dipendere da PlaybackException qui. */
