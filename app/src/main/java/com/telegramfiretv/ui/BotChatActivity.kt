@@ -29,6 +29,11 @@ import java.util.zip.GZIPInputStream
 private val VIDEO_EXT = setOf("mp4", "mov", "mkv", "avi", "webm", "m4v", "3gp", "ts", "flv", "mpg", "mpeg", "wmv")
 private val AUDIO_EXT = setOf("mp3", "m4a", "aac", "ogg", "oga", "opus", "flac", "wav", "wma")
 
+// Colori delle "nuvolette" stile Telegram Desktop: azzurro per i messaggi inviati da me,
+// grigio-blu scuro per quelli ricevuti. Allineamento: miei a destra, altrui a sinistra.
+private const val COLOR_BUBBLE_MINE = 0xFF2B5278.toInt()
+private const val COLOR_BUBBLE_OTHER = 0xFF1C2B33.toInt()
+
 class BotChatActivity : FragmentActivity() {
 
     private var chatId = 0L
@@ -217,39 +222,41 @@ class BotChatActivity : FragmentActivity() {
 
     private fun render(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
         messagesBox.removeAllViews()
-        addRow("↑  Messaggi precedenti", true) { loadOlder() }
+        addLoaderRow("↑  Messaggi precedenti") { loadOlder() }
         // Raccolgo i media della conversazione per la riproduzione con precedente/successivo.
         val mediaRefs = ArrayList<Triple<Int, Int, String>>()
         var prevSender: String? = null
         for (m in msgs.reversed()) {
+            val mine = m.isOutgoing
             val media = mediaOf(m)
             val text = if (media == null) messageText(m) else null
-            if (media == null && (text == null || text.isBlank())) continue
+            val isSticker = m.content is TdApi.MessageSticker
+            if (media == null && !isSticker && (text == null || text.isBlank())) continue
             if (isGroupChat) {
                 val sender = senderLabel(m)
-                if (sender != prevSender) { addSenderHeader(sender); prevSender = sender }
+                if (sender != prevSender) { addSenderHeader(sender, mine); prevSender = sender }
             }
             if (media != null) {
                 val idx = mediaRefs.size
                 mediaRefs.add(media)
                 val icon = if (media.second == 2) "🖼" else "▶"
-                addRow("$icon  ${media.third}", true) { playMediaAt(mediaRefs.toList(), idx) }
-            } else if ((m.content as? TdApi.MessageSticker)?.sticker?.format is TdApi.StickerFormatTgs) {
+                addMessageBubble("$icon  ${media.third}", mine, true) { playMediaAt(mediaRefs.toList(), idx) }
+            } else if (isSticker) {
                 val sticker = (m.content as TdApi.MessageSticker).sticker
-                addStickerView(sticker.sticker.id, sticker.sticker.local.path)
+                addStickerView(sticker.sticker.id, sticker.sticker.local.path, sticker.format, sticker.emoji, mine)
             } else {
                 val t = text!!
                 val cmd = findCommand(t)
                 val link = findLink(t)
                 when {
-                    cmd != null -> addRow(t, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
-                    link != null -> addRow(t, true) { openLink(link) }
-                    else -> addRow(t, false, null)
+                    cmd != null -> addMessageBubble(t, mine, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
+                    link != null -> addMessageBubble(t, mine, true) { openLink(link) }
+                    else -> addMessageBubble(t, mine, false, null)
                 }
             }
             // Anteprima link: indipendente dal tipo di contenuto del messaggio (testo, foto con caption, ecc.)
             val lp = (m.content as? TdApi.MessageText)?.linkPreview
-            if (lp != null) addLinkPreview(lp)
+            if (lp != null) addLinkPreview(lp, mine)
         }
         if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
 
@@ -313,15 +320,23 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
-    private fun addSenderHeader(name: String) {
+    private fun addSenderHeader(name: String, mine: Boolean) {
         val tv = TextView(this).apply {
             text = name
             setTextColor(0xFF4FC3F7.toInt())
             textSize = 13f
-            setPadding(16, 18, 16, 0)
+            setPadding(20, 18, 20, 0)
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-        messagesBox.addView(tv)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        }
+        val spacer = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
+        if (mine) { row.addView(spacer); row.addView(tv) } else { row.addView(tv); row.addView(spacer) }
+        messagesBox.addView(row)
     }
 
     private fun playMediaAt(refs: List<Triple<Int, Int, String>>, idx: Int) {
@@ -483,12 +498,13 @@ class BotChatActivity : FragmentActivity() {
         return when (val c = m.content) {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessageAnimatedEmoji -> c.emoji
-            is TdApi.MessageSticker -> if (c.sticker.format is TdApi.StickerFormatTgs) null else "[sticker]"
+            is TdApi.MessageSticker -> null
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
         }
     }
 
-    private fun addLinkPreview(lp: TdApi.LinkPreview) {
+    private fun addLinkPreview(lp: TdApi.LinkPreview, mine: Boolean) {
+        val capPx = chatContentMaxWidthPx()
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
@@ -498,9 +514,9 @@ class BotChatActivity : FragmentActivity() {
             }
             setPadding(20, 16, 20, 16)
             layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
-            ).also { it.topMargin = 6; it.bottomMargin = 6 }
+            )
         }
         val site = lp.siteName.ifEmpty { lp.url }
         if (site.isNotEmpty()) {
@@ -509,6 +525,7 @@ class BotChatActivity : FragmentActivity() {
                 setTextColor(0xFF4FC3F7.toInt())
                 textSize = 12f
                 setPadding(0, 0, 0, 4)
+                maxWidth = capPx
             })
         }
         if (lp.title.isNotEmpty()) {
@@ -518,6 +535,7 @@ class BotChatActivity : FragmentActivity() {
                 textSize = 15f
                 setTypeface(typeface, android.graphics.Typeface.BOLD)
                 setPadding(0, 0, 0, 4)
+                maxWidth = capPx
             })
         }
         if (lp.description.text.isNotEmpty()) {
@@ -526,6 +544,7 @@ class BotChatActivity : FragmentActivity() {
                 setTextColor(0xFFB0BEC5.toInt())
                 textSize = 13f
                 maxLines = 3
+                maxWidth = capPx
             })
         }
         // Immagine anteprima da LinkPreviewType
@@ -538,9 +557,7 @@ class BotChatActivity : FragmentActivity() {
         if (thumb != null) {
             val iv = ImageView(this).apply {
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                layoutParams = LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.MATCH_PARENT, 200
-                ).also { it.topMargin = 10 }
+                layoutParams = LinearLayout.LayoutParams(capPx, 200).also { it.topMargin = 10 }
             }
             card.addView(iv)
             val path0 = thumb.photo.local.path
@@ -560,73 +577,155 @@ class BotChatActivity : FragmentActivity() {
                 ?.setColor(if (has) 0xFF2E4A6E.toInt() else 0xFF1A2A35.toInt())
         }
         card.setOnClickListener { openLink(lp.url) }
-        messagesBox.addView(card)
+        wrapInRow(card, mine)
     }
 
-    private fun addStickerView(fileId: Int, localPath: String) {
-        val container = LinearLayout(this).apply {
+    private fun addStickerView(fileId: Int, localPath: String, format: TdApi.StickerFormat, emoji: String, mine: Boolean) {
+        val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(0, 8, 0, 8)
             layoutParams = LinearLayout.LayoutParams(200, 200)
         }
-        val lav = LottieAnimationView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(200, 200)
-            repeatCount = com.airbnb.lottie.LottieDrawable.INFINITE
-        }
-        container.addView(lav)
-        messagesBox.addView(container)
 
-        fun stickerFallback() {
-            container.removeAllViews()
-            container.addView(TextView(this).apply { text = "🎭"; textSize = 36f })
+        fun fallbackEmoji() {
+            box.removeAllViews()
+            box.addView(TextView(this).apply { text = emoji.ifEmpty { "🎭" }; textSize = 36f })
         }
 
-        fun loadLottie(path: String) {
-            // Lettura del file + decompressione GZIP su thread di background: farlo sul main
-            // thread (quando il file era già locale) causava scatti/ANR su sticker grossi.
-            // Il parse vero e proprio lo affidiamo poi al factory asincrono di Lottie.
-            Thread {
-                val json: String? = try {
-                    GZIPInputStream(File(path).inputStream()).bufferedReader().use { it.readText() }
-                } catch (e: Exception) { null }
-                if (json == null) {
-                    runOnUiThread { if (!isFinishing && !isDestroyed) stickerFallback() }
-                    return@Thread
+        when (format) {
+            is TdApi.StickerFormatTgs -> {
+                val lav = LottieAnimationView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(200, 200)
+                    repeatCount = com.airbnb.lottie.LottieDrawable.INFINITE
                 }
-                LottieCompositionFactory.fromJsonString(json, path)
-                    .addListener { comp ->
-                        runOnUiThread {
-                            if (!isFinishing && !isDestroyed) { lav.setComposition(comp); lav.playAnimation() }
-                        }
-                    }
-                    .addFailureListener {
-                        runOnUiThread { if (!isFinishing && !isDestroyed) stickerFallback() }
-                    }
-            }.start()
-        }
+                box.addView(lav)
 
-        if (localPath.isNotEmpty() && File(localPath).exists()) {
-            loadLottie(localPath)
-        } else {
-            TdClient.downloadFilePath(fileId) { path ->
-                if (path.isNotEmpty()) loadLottie(path)
+                fun loadLottie(path: String) {
+                    // Lettura del file + decompressione GZIP su thread di background: farlo sul main
+                    // thread (quando il file era già locale) causava scatti/ANR su sticker grossi.
+                    // Il parse vero e proprio lo affidiamo poi al factory asincrono di Lottie.
+                    Thread {
+                        val json: String? = try {
+                            GZIPInputStream(File(path).inputStream()).bufferedReader().use { it.readText() }
+                        } catch (e: Exception) { null }
+                        if (json == null) {
+                            runOnUiThread { if (!isFinishing && !isDestroyed) fallbackEmoji() }
+                            return@Thread
+                        }
+                        LottieCompositionFactory.fromJsonString(json, path)
+                            .addListener { comp ->
+                                runOnUiThread {
+                                    if (!isFinishing && !isDestroyed) { lav.setComposition(comp); lav.playAnimation() }
+                                }
+                            }
+                            .addFailureListener {
+                                runOnUiThread { if (!isFinishing && !isDestroyed) fallbackEmoji() }
+                            }
+                    }.start()
+                }
+
+                if (localPath.isNotEmpty() && File(localPath).exists()) {
+                    loadLottie(localPath)
+                } else {
+                    TdClient.downloadFilePath(fileId) { path ->
+                        if (path.isNotEmpty()) loadLottie(path)
+                    }
+                }
+            }
+            is TdApi.StickerFormatWebp -> {
+                // Sticker statico: Android decodifica il WebP nativamente con BitmapFactory.
+                val iv = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    layoutParams = LinearLayout.LayoutParams(200, 200)
+                }
+                box.addView(iv)
+
+                fun showStatic(path: String) {
+                    val bmp = try { BitmapFactory.decodeFile(path) } catch (e: Exception) { null }
+                    if (bmp != null) iv.setImageBitmap(bmp) else fallbackEmoji()
+                }
+
+                if (localPath.isNotEmpty() && File(localPath).exists()) {
+                    showStatic(localPath)
+                } else {
+                    TdClient.downloadFilePath(fileId) { path ->
+                        if (path.isNotEmpty()) runOnUiThread { if (!isFinishing && !isDestroyed) showStatic(path) }
+                    }
+                }
+            }
+            else -> {
+                // Sticker video (Webm) non ancora supportato: mostriamo l'emoji come segnaposto.
+                fallbackEmoji()
             }
         }
+
+        wrapInRow(box, mine)
     }
 
-    private fun addRow(text: String, focusable: Boolean, onClick: (() -> Unit)? = null) {
+    /** Larghezza massima del contenuto di una nuvoletta/anteprima, per non occupare tutto lo schermo. */
+    private fun chatContentMaxWidthPx(): Int = (resources.displayMetrics.widthPixels * 0.6).toInt()
+
+    /** Riga di utilità a piena larghezza, senza nuvoletta (es. "Messaggi precedenti"). */
+    private fun addLoaderRow(text: String, onClick: () -> Unit) {
         val tv = TextView(this).apply {
             this.text = text
             setTextColor(0xFFE6EDF2.toInt())
             textSize = 16f
             setPadding(16, 16, 16, 16)
-        }
-        if (focusable && onClick != null) {
-            tv.isFocusable = true
-            tv.setOnFocusChangeListener { v, has -> v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000) }
-            tv.setOnClickListener { onClick() }
+            isFocusable = true
+            setOnFocusChangeListener { v, has -> v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000) }
+            setOnClickListener { onClick() }
         }
         messagesBox.addView(tv)
+    }
+
+    /**
+     * Messaggio di chat in stile "nuvoletta": allineato a destra (azzurro) se inviato da me,
+     * a sinistra (grigio-blu) se ricevuto — come su Telegram Desktop.
+     */
+    private fun addMessageBubble(text: String, mine: Boolean, focusable: Boolean, onClick: (() -> Unit)? = null) {
+        val tv = TextView(this).apply {
+            this.text = text
+            setTextColor(0xFFE6EDF2.toInt())
+            textSize = 16f
+            setPadding(8, 4, 8, 4)
+            maxWidth = chatContentMaxWidthPx()
+        }
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 26f
+                setColor(if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            setPadding(24, 16, 24, 16)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            addView(tv)
+        }
+        if (focusable && onClick != null) {
+            bubble.isFocusable = true
+            bubble.setOnFocusChangeListener { v, has ->
+                (v.background as? GradientDrawable)
+                    ?.setColor(if (has) 0xFF3E6FA8.toInt() else if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            bubble.setOnClickListener { onClick() }
+        }
+        wrapInRow(bubble, mine)
+    }
+
+    /** Incolonna [content] a destra se [mine], a sinistra altrimenti, aggiungendolo a messagesBox. */
+    private fun wrapInRow(content: View, mine: Boolean) {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.topMargin = 4; it.bottomMargin = 4 }
+        }
+        fun spacer() = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
+        if (mine) { row.addView(spacer()); row.addView(content) }
+        else { row.addView(content); row.addView(spacer()) }
+        messagesBox.addView(row)
     }
 
     private fun newRow(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
