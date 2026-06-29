@@ -176,14 +176,12 @@ class TdDataSource(
      */
     private fun waitForBytesAvailable(from: Long, needed: Long, timeoutMs: Long): Boolean {
         if (needed <= 0) return true
-        val target = from + needed
         val latch = CountDownLatch(1)
         val satisfied = java.util.concurrent.atomic.AtomicBoolean(false)
 
         val listener: (TdApi.File) -> Unit = { f ->
             if (f.id == fileId) {
-                val downloadedPrefix = downloadedPrefixEnd(f)
-                if (downloadedPrefix >= target || f.local.isDownloadingCompleted) {
+                if (isRangeAvailable(f, from, needed)) {
                     satisfied.set(true)
                     latch.countDown()
                 }
@@ -194,8 +192,7 @@ class TdDataSource(
             // Controllo immediato: magari è già disponibile.
             TdClient.getFile(fileId) { obj ->
                 if (obj is TdApi.File) {
-                    val downloadedPrefix = downloadedPrefixEnd(obj)
-                    if (downloadedPrefix >= target || obj.local.isDownloadingCompleted) {
+                    if (isRangeAvailable(obj, from, needed)) {
                         satisfied.set(true)
                         latch.countDown()
                     }
@@ -212,13 +209,23 @@ class TdDataSource(
         return satisfied.get()
     }
 
-    /** Stima la fine del prefisso scaricato in sequenza dall'inizio del file. */
-    private fun downloadedPrefixEnd(f: TdApi.File): Long {
-        // TDLib espone downloadedSize (totale scaricato, non necessariamente contiguo se
-        // ci sono richieste con offset multipli) e local.path. Per il nostro pattern
-        // (un solo offset attivo alla volta, sempre crescente) downloadedSize è una stima
-        // valida e sufficientemente prudente del prefisso contiguo disponibile.
-        return f.local.downloadedSize
+    /**
+     * Indica se nel file sono disponibili in modo contiguo i byte nell'intervallo
+     * [from, from+needed). Per lo streaming MKV è essenziale tenere conto dell'OFFSET da cui
+     * TDLib sta scaricando: i metadati di seek (Cues/SeekHead) di un MKV stanno spesso in
+     * CODA al file, perciò ExoPlayer chiede subito un offset altissimo. In quel caso il solo
+     * downloadedSize (totale scaricato dall'inizio) non raggiunge mai quella posizione e lo
+     * streaming andava in timeout. TDLib espone invece local.downloadOffset (da dove sta
+     * scaricando) e local.downloadedPrefixSize (quanti byte contigui da quell'offset): la
+     * disponibilità a una posizione si calcola da questi due.
+     */
+    private fun isRangeAvailable(f: TdApi.File, from: Long, needed: Long): Boolean {
+        if (f.local.isDownloadingCompleted) return true
+        val off = f.local.downloadOffset
+        val prefix = f.local.downloadedPrefixSize
+        // I byte contigui realmente leggibili vanno da off a off+prefix.
+        // Servono tutti i byte in [from, from+needed).
+        return off <= from && (off + prefix) >= (from + needed)
     }
 
     companion object {
