@@ -3,6 +3,8 @@ package com.telegramfiretv.ui
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.ImageView
@@ -19,7 +21,18 @@ class ChatGridFragment : VerticalGridSupportFragment() {
     private lateinit var chatsAdapter: ArrayObjectAdapter
     private var grid = false
     private var listName = "main"
-    private val chatsListener: () -> Unit = { activity?.runOnUiThread { refresh() } }
+    private val uiHandler = Handler(Looper.getMainLooper())
+    // Firma dell'ultima lista mostrata: se non cambia, non ricostruiamo l'adapter (niente flicker).
+    private var lastSig: String = ""
+    // Debounce: all'avvio arrivano centinaia di UpdateChatPosition a raffica; le raggruppiamo
+    // in un solo refresh dopo una breve pausa invece di ricostruire la griglia ogni volta.
+    private val refreshRunnable = Runnable { refresh() }
+    private val chatsListener: () -> Unit = { scheduleRefresh() }
+
+    private fun scheduleRefresh() {
+        uiHandler.removeCallbacks(refreshRunnable)
+        uiHandler.postDelayed(refreshRunnable, 150)
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -54,13 +67,19 @@ class ChatGridFragment : VerticalGridSupportFragment() {
     }
 
     private fun refresh() {
-        chatsAdapter.clear()
         val list = if (listName == "archive") TdClient.orderedArchiveChats() else TdClient.orderedMainChats()
+        // Se la lista (ordine + id + titoli) è identica a quella già mostrata, non tocchiamo
+        // l'adapter: evita la ricostruzione completa che causava lo sfarfallio.
+        val sig = list.joinToString("|") { "${it.id}:${it.title}" }
+        if (sig == lastSig) return
+        lastSig = sig
+        chatsAdapter.clear()
         chatsAdapter.addAll(0, list)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        uiHandler.removeCallbacks(refreshRunnable)
         thumbs.stop()
         TdClient.removeChatsListener(chatsListener)
     }

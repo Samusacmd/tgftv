@@ -58,6 +58,22 @@ class BotChatActivity : FragmentActivity() {
     private val messagesListener: (Long) -> Unit =
         { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
 
+    // Riceve direttamente il nuovo messaggio: lo inseriamo subito nella lista e ri-renderizziamo,
+    // senza dipendere dalla rilettura della history (che può arrivare in ritardo). È questo che
+    // fa comparire le risposte del bot in tempo reale come sul telefono.
+    private val newMessageListener: (TdApi.Message) -> Unit = { msg ->
+        if (msg.chatId == chatId) runOnUiThread {
+            // Ignora se apparteniamo a un topic diverso da quello aperto.
+            val ok = forumTopicId == 0 || msg.messageThreadId == forumTopicId.toLong()
+            if (ok && lastMessages.none { it.id == msg.id }) {
+                lastMessages = (listOf(msg) + lastMessages).sortedByDescending { it.id }
+                lastNewestId = lastMessages.firstOrNull()?.id ?: lastNewestId
+                lastSig = "${lastMessages.size}|$lastNewestId"
+                renderWithSenders(lastMessages, scrollBottom = true)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         chatId = intent.getLongExtra("chatId", 0L)
@@ -118,6 +134,7 @@ class BotChatActivity : FragmentActivity() {
 
         TdClient.openChat(chatId)
         TdClient.addMessagesListener(messagesListener)
+        TdClient.addNewMessageListener(newMessageListener)
         loadBotInfo()
         loadAndRender()
     }
@@ -221,6 +238,18 @@ class BotChatActivity : FragmentActivity() {
     }
 
     private fun render(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
+        // Subito dopo l'installazione alcuni dati (utenti, chat, sticker) possono non essere
+        // ancora in cache: un accesso incoerente qui faceva chiudere l'app al primo tap su
+        // certi dispositivi. Proteggiamo la costruzione delle view: se qualcosa va storto,
+        // l'app resta in piedi e il refresh successivo (a dati pronti) mostra tutto.
+        try {
+            renderInner(msgs, scrollBottom)
+        } catch (e: Throwable) {
+            handler.postDelayed({ scheduleRefresh() }, 400)
+        }
+    }
+
+    private fun renderInner(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
         messagesBox.removeAllViews()
         addLoaderRow("↑  Messaggi precedenti") { loadOlder() }
         // Raccolgo i media della conversazione per la riproduzione con precedente/successivo.
@@ -753,5 +782,6 @@ class BotChatActivity : FragmentActivity() {
         super.onDestroy()
         handler.removeCallbacks(refreshRunnable)
         TdClient.removeMessagesListener(messagesListener)
+        TdClient.removeNewMessageListener(newMessageListener)
     }
 }

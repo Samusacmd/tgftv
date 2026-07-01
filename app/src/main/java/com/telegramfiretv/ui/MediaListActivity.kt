@@ -174,6 +174,14 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var emptyRetries = 8
     private var writeOrb = false
 
+    // Scroll infinito: carichiamo a blocchi invece che tutto insieme.
+    private var loading = false          // un blocco è in corso: evita richieste sovrapposte
+    private var reachedEnd = false       // il canale/topic è finito: niente altro da caricare
+    private var initialShown = false     // il primo blocco è già stato mostrato
+    private val hardCap = 1300           // limite massimo di media raccolti
+    private val pagesPerBatch = 6        // pagine caricate per ogni blocco (6 × 80 = fino a 480 msg)
+    private val prefetchThreshold = 12   // quando mancano così pochi item alla fine, precarica
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         thumbs.start()
@@ -229,6 +237,15 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                             .putExtra(PlayerActivity.EXTRA_INDEX, idx)
                     )
                 }
+            }
+        }
+
+        setOnItemViewSelectedListener { _, item, _, _ ->
+            // Quando la selezione si avvicina alla fine della lista già caricata, precarica
+            // il blocco successivo (scroll infinito): l'utente non aspetta mai il caricamento.
+            if (item is MediaEntry) {
+                val pos = collected.indexOf(item)
+                if (pos >= 0 && pos >= collected.size - prefetchThreshold) loadMoreIfNeeded()
             }
         }
 
@@ -292,30 +309,49 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             collected.addAll(cached)
             itemsAdapter.addAll(0, collected)
             title = "${collected.size} contenuti"
+            initialShown = true
+            // La cache serve alla riapertura rapida della stessa schermata. Non conserva l'id
+            // dell'ultimo messaggio, quindi non possiamo riprendere lo scroll senza rischiare
+            // duplicati: la trattiamo come lista completa. Riaprendo da zero (cambio filtro o
+            // cache scaduta) il caricamento progressivo riparte e arriva fino a $hardCap.
+            reachedEnd = true
         } else {
-            loadPage(0L)
+            title = "Carico…"
+            loadBatch()
         }
     }
 
-    private fun fetch(from: Long, handler: (TdApi.Object) -> Unit) {
-        if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, from, 80, handler)
-        else TdClient.getChatHistory(chatId, from, 80, handler)
+    /** Carica un blocco di pagine e le AGGIUNGE alla lista, senza svuotare l'adapter. */
+    private fun loadBatch() {
+        if (loading || reachedEnd) return
+        if (collected.size >= hardCap) { reachedEnd = true; return }
+        loading = true
+        loadPage(if (initialShown) oldest else 0L, pagesInBatch = 0)
     }
 
-    private fun loadPage(from: Long) {
+    /** Se serve altro (non stiamo già caricando, non abbiamo finito, non al tetto), carica un blocco. */
+    private fun loadMoreIfNeeded() {
+        if (!loading && !reachedEnd && collected.size < hardCap) loadBatch()
+    }
+
+    private fun loadPage(from: Long, pagesInBatch: Int) {
         fetch(from) { result ->
             activity?.runOnUiThread {
                 if (result is TdApi.Error) {
                     lastError = "err ${result.code}: ${result.message}"
-                    finishLoading()
+                    finishBatch(endReached = true)
                     return@runOnUiThread
                 }
                 val msgs = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
                 if (msgs.isEmpty()) {
+                    // All'inizio la history locale può essere vuota: riprova qualche volta.
                     if (collected.isEmpty() && emptyRetries > 0) {
                         emptyRetries--
-                        view?.postDelayed({ loadPage(0L) }, 600)
-                    } else finishLoading()
+                        view?.postDelayed({ loadPage(0L, pagesInBatch) }, 600)
+                    } else {
+                        // Nessun altro messaggio: siamo davvero alla fine del canale/topic.
+                        finishBatch(endReached = true)
+                    }
                     return@runOnUiThread
                 }
                 scanned += msgs.size
@@ -324,25 +360,41 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                     oldest = m.id
                 }
                 pages++
-                val maxPages = if (forumTopicId != 0) 40 else 15
-                if (pages < maxPages && collected.size < 300) loadPage(oldest) else finishLoading()
+                val batchDone = pagesInBatch + 1 >= pagesPerBatch
+                val capReached = collected.size >= hardCap
+                when {
+                    capReached -> finishBatch(endReached = true)
+                    batchDone -> finishBatch(endReached = false)
+                    else -> loadPage(oldest, pagesInBatch + 1)
+                }
             }
         }
     }
 
-    private fun finishLoading() {
-        itemsAdapter.clear()
+    /** Mostra i media raccolti finora (aggiungendo solo i nuovi) e libera lo stato di caricamento. */
+    private fun finishBatch(endReached: Boolean) {
+        loading = false
+        if (endReached) reachedEnd = true
+
         if (collected.isEmpty()) {
             val base = if (forumTopicId != 0) "Argomento: 0 media su $scanned msg" else "Vuoto: 0 media su $scanned msg"
             title = if (lastError != null) "$base — $lastError" else base
-        } else {
-            itemsAdapter.addAll(0, collected)
-            title = "${collected.size} contenuti"
-            if (forumTopicId == 0) {
-                MediaListActivity.cache = collected.toList()
-                MediaListActivity.cacheChatId = chatId
-                MediaListActivity.cacheShowAll = showAll
-            }
+            return
+        }
+
+        // Aggiunge all'adapter SOLO gli elementi non ancora mostrati (niente clear/addAll totale).
+        val shown = itemsAdapter.size()
+        if (collected.size > shown) {
+            itemsAdapter.addAll(shown, collected.subList(shown, collected.size))
+        }
+        initialShown = true
+        val suffix = if (reachedEnd) "" else "…"
+        title = "${collected.size} contenuti$suffix"
+
+        if (forumTopicId == 0) {
+            MediaListActivity.cache = collected.toList()
+            MediaListActivity.cacheChatId = chatId
+            MediaListActivity.cacheShowAll = showAll
         }
     }
 
