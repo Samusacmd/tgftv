@@ -28,6 +28,12 @@ object TdClient {
     fun addMessagesListener(l: (Long) -> Unit) { messagesListeners.add(l) }
     fun removeMessagesListener(l: (Long) -> Unit) { messagesListeners.remove(l) }
 
+    // Listener che ricevono direttamente il nuovo messaggio (non solo il chatId): permette
+    // di mostrarlo subito senza rileggere la history, che può essere ancora indietro.
+    private val newMessageListeners = CopyOnWriteArrayList<(TdApi.Message) -> Unit>()
+    fun addNewMessageListener(l: (TdApi.Message) -> Unit) { newMessageListeners.add(l) }
+    fun removeNewMessageListener(l: (TdApi.Message) -> Unit) { newMessageListeners.remove(l) }
+
     private val fileListeners = CopyOnWriteArrayList<(TdApi.File) -> Unit>()
     fun addFileListener(l: (TdApi.File) -> Unit) { fileListeners.add(l) }
     fun removeFileListener(l: (TdApi.File) -> Unit) { fileListeners.remove(l) }
@@ -106,8 +112,11 @@ object TdClient {
                 synchronized(users) { users[u.id] = u }
             }
 
-            TdApi.UpdateNewMessage.CONSTRUCTOR ->
-                for (l in messagesListeners) l((obj as TdApi.UpdateNewMessage).message.chatId)
+            TdApi.UpdateNewMessage.CONSTRUCTOR -> {
+                val msg = (obj as TdApi.UpdateNewMessage).message
+                for (l in messagesListeners) l(msg.chatId)
+                for (l in newMessageListeners) l(msg)
+            }
 
             TdApi.UpdateMessageEdited.CONSTRUCTOR ->
                 for (l in messagesListeners) l((obj as TdApi.UpdateMessageEdited).chatId)
