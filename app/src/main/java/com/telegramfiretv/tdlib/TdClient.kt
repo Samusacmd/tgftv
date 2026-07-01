@@ -143,6 +143,11 @@ object TdClient {
                     applyPositions(u.chatId, u.positions)
                 }
                 for (l in chatsListeners) l()
+                // Alcune risposte (soprattutto dei bot) arrivano alla chat aperta come
+                // aggiornamento dell'ultimo messaggio invece che come UpdateNewMessage:
+                // inoltriamo anche questo ai listener del messaggio, così la chat aperta le
+                // mostra subito senza dover uscire e rientrare.
+                u.lastMessage?.let { m -> for (l in newMessageListeners) l(m) }
             }
 
             TdApi.UpdateChatReadInbox.CONSTRUCTOR -> {
