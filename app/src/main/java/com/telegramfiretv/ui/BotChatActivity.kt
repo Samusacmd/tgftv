@@ -63,9 +63,7 @@ class BotChatActivity : FragmentActivity() {
     // fa comparire le risposte del bot in tempo reale come sul telefono.
     private val newMessageListener: (TdApi.Message) -> Unit = { msg ->
         if (msg.chatId == chatId) runOnUiThread {
-            // Ignora se apparteniamo a un topic diverso da quello aperto.
-            val ok = forumTopicId == 0 || msg.messageThreadId == forumTopicId.toLong()
-            if (ok && lastMessages.none { it.id == msg.id }) {
+            if (lastMessages.none { it.id == msg.id }) {
                 lastMessages = (listOf(msg) + lastMessages).sortedByDescending { it.id }
                 lastNewestId = lastMessages.firstOrNull()?.id ?: lastNewestId
                 lastSig = "${lastMessages.size}|$lastNewestId"

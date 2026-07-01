@@ -334,6 +334,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         if (!loading && !reachedEnd && collected.size < hardCap) loadBatch()
     }
 
+    private fun fetch(from: Long, handler: (TdApi.Object) -> Unit) {
+        if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, from, 80, handler)
+        else TdClient.getChatHistory(chatId, from, 80, handler)
+    }
+
     private fun loadPage(from: Long, pagesInBatch: Int) {
         fetch(from) { result ->
             activity?.runOnUiThread {
