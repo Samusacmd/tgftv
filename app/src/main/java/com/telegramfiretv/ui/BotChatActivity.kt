@@ -69,6 +69,9 @@ class BotChatActivity : FragmentActivity() {
                 lastSig = "${lastMessages.size}|$lastNewestId"
                 renderWithSenders(lastMessages, scrollBottom = true)
             }
+            // Rete di sicurezza: riallinea con la history poco dopo. La guardia lastSig in
+            // loadAndRender evita re-render inutili (niente flicker) se non c'è nulla di nuovo.
+            scheduleRefresh()
         }
     }
 
