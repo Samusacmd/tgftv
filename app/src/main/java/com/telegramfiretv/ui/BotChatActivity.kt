@@ -65,6 +65,15 @@ class BotChatActivity : FragmentActivity() {
     }
     private var emptyRetries = 5
     private var lastSig: String = ""
+
+    /**
+     * Firma della lista messaggi usata per decidere se ridisegnare. Include, oltre a id e
+     * numero, anche editDate e l'hash del testo di ogni messaggio: alcuni bot rispondono ai
+     * pulsanti MODIFICANDO il messaggio del menu invece di inviarne uno nuovo, e con la sola
+     * coppia numero+idUltimo la modifica risultava invisibile (bisognava uscire e rientrare).
+     */
+    private fun sigOf(msgs: List<TdApi.Message>): String =
+        msgs.joinToString("|") { "${it.id}:${it.editDate}:${messageText(it)?.hashCode() ?: 0}" }
     private var lastNewestId: Long = 0L
     private val messagesListener: (Long) -> Unit =
         { cid -> if (cid == chatId) runOnUiThread { scheduleRefresh() } }
@@ -77,7 +86,7 @@ class BotChatActivity : FragmentActivity() {
             if (lastMessages.none { it.id == msg.id }) {
                 lastMessages = (listOf(msg) + lastMessages).sortedByDescending { it.id }
                 lastNewestId = lastMessages.firstOrNull()?.id ?: lastNewestId
-                lastSig = "${lastMessages.size}|$lastNewestId"
+                lastSig = sigOf(lastMessages)
                 renderWithSenders(lastMessages, scrollBottom = true)
             }
             // Rete di sicurezza: riallinea con la history poco dopo. La guardia lastSig in
@@ -202,7 +211,7 @@ class BotChatActivity : FragmentActivity() {
                 // "Messaggi precedenti"), senza buttarli via, e togliendo quelli cancellati di recente.
                 lastMessages = if (lastMessages.isEmpty()) incoming else mergeMessages(lastMessages, incoming)
                 val newestId = lastMessages.firstOrNull()?.id ?: 0L
-                val sig = "${lastMessages.size}|$newestId"
+                val sig = sigOf(lastMessages)
                 if (sig == lastSig) return@runOnUiThread     // nulla di nuovo: niente re-render (no flicker)
                 val grew = newestId > lastNewestId
                 lastSig = sig
@@ -238,7 +247,7 @@ class BotChatActivity : FragmentActivity() {
             runOnUiThread {
                 if (more.isNotEmpty()) {
                     lastMessages = (lastMessages + more).distinctBy { it.id }.sortedByDescending { it.id }
-                    lastSig = "${lastMessages.size}|${lastMessages.firstOrNull()?.id ?: 0L}"
+                    lastSig = sigOf(lastMessages)
                     renderWithSenders(lastMessages, false)
                 } else {
                     Toast.makeText(this, "Nessun messaggio precedente", Toast.LENGTH_SHORT).show()
