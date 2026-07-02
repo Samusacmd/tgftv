@@ -52,6 +52,17 @@ class BotChatActivity : FragmentActivity() {
 
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable { loadAndRender() }
+
+    // Ricontrollo periodico finché la chat è aperta: rilegge la cronologia (la stessa lettura
+    // che avviene rientrando nella chat, che trova sempre le risposte) ogni 2 secondi.
+    // La guardia lastSig evita qualsiasi ridisegno se non c'è nulla di nuovo: zero sfarfallio.
+    // Serve perché su alcuni dispositivi gli update in tempo reale non vengono consegnati.
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            loadAndRender()
+            handler.postDelayed(this, 1000)
+        }
+    }
     private var emptyRetries = 5
     private var lastSig: String = ""
     private var lastNewestId: Long = 0L
@@ -779,8 +790,20 @@ class BotChatActivity : FragmentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        handler.removeCallbacks(pollRunnable)
+        handler.postDelayed(pollRunnable, 1000)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        handler.removeCallbacks(pollRunnable)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacks(pollRunnable)
         handler.removeCallbacks(refreshRunnable)
         TdClient.removeMessagesListener(messagesListener)
         TdClient.removeNewMessageListener(newMessageListener)
