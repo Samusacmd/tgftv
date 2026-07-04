@@ -62,6 +62,11 @@ class PlayerActivity : FragmentActivity() {
     private var isPhoto = false
     private var started = false
     private var streamingFallback = false
+    // Ritentativi dello streaming dopo un errore: al rientro dallo standby la rete della
+    // Fire TV impiega qualche secondo a riattivarsi e il primo tentativo può fallire per
+    // motivi transitori. Prima di declassare al download classico (lento su file grandi),
+    // ritentiamo lo streaming alcune volte a distanza di qualche secondo.
+    private var streamingRetries = 0
     private var fileListener: ((TdApi.File) -> Unit)? = null
     private var streamingActive = false
 
@@ -223,6 +228,10 @@ class PlayerActivity : FragmentActivity() {
     override fun onStart() {
         super.onStart()
         stopped = false
+        // Al rientro ripartiamo sempre provando lo streaming: se prima dell'uscita eravamo
+        // caduti nel download classico per un errore transitorio, non deve restare permanente.
+        streamingFallback = false
+        streamingRetries = 0
         startItem()
     }
 
@@ -259,18 +268,30 @@ class PlayerActivity : FragmentActivity() {
                 override fun onPlayerError(error: PlaybackException) {
                     if (streamingActive && !streamingFallback && !isPhoto) {
                         try {
-                            // Lo streaming ha fallito: salviamo la posizione raggiunta e ricadiamo
-                            // sul download classico, riprendendo da dove si era interrotto.
+                            // Salviamo comunque la posizione raggiunta.
                             val resumeAt = exo.currentPosition.coerceAtLeast(0L)
                             if (posKey.isNotEmpty()) Settings.savePosition(this@PlayerActivity, posKey, resumeAt)
+                            // L'errore è spesso transitorio (es. rete in riattivazione dopo
+                            // lo standby della Fire TV): ritentiamo lo streaming prima di
+                            // declassare al download classico, lentissimo sui file grandi.
+                            if (streamingRetries < 3) {
+                                streamingRetries++
+                                streamingActive = false
+                                started = false
+                                runOnUiThread {
+                                    setStatus("Riavvio streaming… (tentativo $streamingRetries)")
+                                    handler.postDelayed({ if (!stopped) startItem() }, 2000)
+                                }
+                                return
+                            }
+                            // Ritentativi esauriti: ricadiamo sul download classico,
+                            // riprendendo da dove si era interrotto.
                             streamingFallback = true
                             streamingActive = false
                             started = false
                             runOnUiThread {
                                 setStatus("Streaming non riuscito, scarico normalmente…")
-                                TdClient.downloadFile(targetFileId) { obj ->
-                                    if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
-                                }
+                                startClassicDownload(retries = 5)
                             }
                         } catch (e: Exception) {
                             // Non lasciamo che un problema nel percorso di fallback faccia
@@ -289,6 +310,10 @@ class PlayerActivity : FragmentActivity() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_READY) {
+                        // Riproduzione avviata davvero: azzera i ritentativi per gli errori futuri.
+                        streamingRetries = 0
+                    }
                     if (playbackState == Player.STATE_ENDED) {
                         if (posKey.isNotEmpty()) Settings.clearPosition(this@PlayerActivity, posKey)
                         // Auto-avanzamento: se c'è un file successivo nella lista passa a quello,
@@ -323,9 +348,7 @@ class PlayerActivity : FragmentActivity() {
             streamingActive = true
             requestFileSizeForStreaming(attemptsLeft = 5)
         } else {
-            TdClient.downloadFile(targetFileId) { obj ->
-                if (!stopped && obj is TdApi.File) runOnUiThread { onFileProgress(obj) }
-            }
+            startClassicDownload(retries = 5)
         }
     }
 
@@ -353,9 +376,7 @@ class PlayerActivity : FragmentActivity() {
                 // Dopo vari tentativi, ancora nessuna dimensione nota: ricadiamo sul download classico.
                 runOnUiThread {
                     streamingActive = false
-                    TdClient.downloadFile(targetFileId) { o ->
-                        if (!stopped && o is TdApi.File) runOnUiThread { onFileProgress(o) }
-                    }
+                    startClassicDownload(retries = 5)
                 }
             }
         }
@@ -390,6 +411,27 @@ class PlayerActivity : FragmentActivity() {
         if (pos > 0) exo.seekTo(pos)
         exo.playWhenReady = true
         if (isAudio) binding.playerView.showController()
+    }
+
+    /**
+     * Avvia il download classico gestendo anche gli errori di TDLib: se DownloadFile risponde
+     * con un errore transitorio (rete non pronta, file appena cancellato dallo stop precedente),
+     * riprova dopo un secondo invece di restare in silenzio bloccato su "Scarico… 0%".
+     */
+    private fun startClassicDownload(retries: Int) {
+        if (stopped) return
+        TdClient.downloadFile(targetFileId) { obj ->
+            if (stopped) return@downloadFile
+            when {
+                obj is TdApi.File -> runOnUiThread { onFileProgress(obj) }
+                retries > 0 -> handler.postDelayed({ startClassicDownload(retries - 1) }, 1000)
+                else -> runOnUiThread {
+                    val msg = (obj as? TdApi.Error)?.message ?: "errore sconosciuto"
+                    status.visibility = View.VISIBLE
+                    status.text = "Download non riuscito:\n$msg"
+                }
+            }
+        }
     }
 
     private fun onFileProgress(file: TdApi.File) {
