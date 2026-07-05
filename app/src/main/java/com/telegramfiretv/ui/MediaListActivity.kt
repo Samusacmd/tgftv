@@ -3,8 +3,12 @@ package com.telegramfiretv.ui
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.InsetDrawable
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -452,9 +456,34 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     }
 }
 
+/** Bitmap della stellina, disegnata una volta sola e condivisa tra le card. */
+private var starBitmap: Bitmap? = null
+
+/**
+ * Stellina come drawable da usare come "foreground" della card: un livello sovrapposto
+ * ancorato all'angolo in alto a destra dell'anteprima, che non entra nel layout interno
+ * della card Leanback (aggiungerla come vista figlia la faceva finire sotto l'immagine).
+ */
+private fun starDrawable(res: android.content.res.Resources): Drawable {
+    val bmp = starBitmap ?: run {
+        val size = 40
+        val b = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val cv = Canvas(b)
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = 30f
+            setShadowLayer(5f, 0f, 0f, 0xFF000000.toInt())
+        }
+        cv.drawText("⭐", 3f, 32f, p)
+        starBitmap = b
+        b
+    }
+    // InsetDrawable = margini della stellina dal bordo (alto e destra).
+    return InsetDrawable(BitmapDrawable(res, bmp), 0, 6, 8, 0)
+}
+
 class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
-    /** ViewHolder con riferimento alla stellina e all'elemento associato (per il toggle). */
-    private class VH(view: View, val star: TextView) : Presenter.ViewHolder(view) {
+    /** ViewHolder con il drawable della stellina e l'elemento associato (per il toggle). */
+    private class VH(view: View, val star: Drawable) : Presenter.ViewHolder(view) {
         var entry: MediaEntry? = null
     }
 
@@ -463,26 +492,15 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
             isFocusable = true
             isFocusableInTouchMode = true
             setMainImageDimensions(280, 158)
+            foregroundGravity = Gravity.TOP or Gravity.END
         }
-        // Stellina gialla in sovrimpressione sull'angolo in alto a destra dell'anteprima.
-        val star = TextView(parent.context).apply {
-            text = "⭐"
-            textSize = 20f
-            setShadowLayer(4f, 0f, 0f, 0xFF000000.toInt())
-            visibility = View.GONE
-            layoutParams = FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP or Gravity.END
-            ).apply { topMargin = 4; rightMargin = 8 }
-        }
-        card.addView(star)
-        val vh = VH(card, star)
+        val vh = VH(card, starDrawable(parent.context.resources))
         // Pressione prolungata (OK tenuto premuto): inverte lo stato "già visto".
         card.setOnLongClickListener { v ->
             val e = vh.entry ?: return@setOnLongClickListener false
             if (e.watchKey.isEmpty()) return@setOnLongClickListener false
             val now = Settings.toggleWatched(v.context, e.watchKey)
-            star.visibility = if (now) View.VISIBLE else View.GONE
+            card.foreground = if (now) vh.star else null
             Toast.makeText(v.context, if (now) "Segnato come già riprodotto" else "Segnato come non riprodotto", Toast.LENGTH_SHORT).show()
             true
         }
@@ -495,8 +513,8 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
         vh.entry = e
         val card = viewHolder.view as ImageCardView
         card.titleText = e.title
-        vh.star.visibility =
-            if (e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)) View.VISIBLE else View.GONE
+        val seen = e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)
+        card.foreground = if (seen) vh.star else null
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
         card.findViewById<TextView>(androidx.leanback.R.id.title_text)?.apply {
@@ -511,7 +529,7 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         val card = viewHolder.view as ImageCardView
         (viewHolder as VH).entry = null
-        viewHolder.star.visibility = View.GONE
+        card.foreground = null
         card.titleText = null
         card.contentText = null
         card.mainImage = null
