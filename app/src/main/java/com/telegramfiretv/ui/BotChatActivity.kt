@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.InputType
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -125,8 +126,17 @@ class BotChatActivity : FragmentActivity() {
             setPadding(0, 0, 0, 12)
         })
 
-        messagesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        messagesScroll = ScrollView(this).apply { isFocusable = false; addView(messagesBox) }
+        messagesBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            // Con pochi messaggi, ancorali al fondo (sopra la casella) come Telegram,
+            // invece di lasciarli in alto con il vuoto sotto.
+            gravity = Gravity.BOTTOM
+        }
+        messagesScroll = ScrollView(this).apply {
+            isFocusable = false
+            isFillViewport = true
+            addView(messagesBox)
+        }
         // Arrivati in cima scorrendo (anche senza elementi selezionabili), carica da solo
         // i messaggi precedenti: la chat si legge a ritroso senza premere nulla.
         messagesScroll.viewTreeObserver.addOnScrollChangedListener {
@@ -416,6 +426,12 @@ class BotChatActivity : FragmentActivity() {
                 buttonsBox.addView(makeButton(label) { TdClient.sendText(chatId, "/${c.command}"); scheduleRefresh() })
             }
         }
+
+        // L'area dei pulsanti occupa spazio solo se ha davvero dei pulsanti: nelle chat
+        // senza tastiera (es. tra persone) va nascosta, altrimenti riserva un terzo dello
+        // schermo lasciando un vuoto tra la conversazione e la casella di invio.
+        (buttonsBox.parent as? View)?.visibility =
+            if (buttonsBox.childCount == 0) View.GONE else View.VISIBLE
     }
 
     private fun renderWithSenders(msgs: List<TdApi.Message>, scrollBottom: Boolean) {
