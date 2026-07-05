@@ -17,7 +17,7 @@ import java.net.URL
  * sceglie quello con la versione più alta e la confronta con quella installata.
  * Se è più nuova, avvisa (tramite onFound: chi chiama mostra la finestra di conferma)
  * e, alla conferma, scarica l'APK e lo installa con PackageInstaller. A installazione
- * completata, il ricevitore UpdateInstallReceiver riapre automaticamente l'app nella
+ * completata, la UpdateInstallActivity riapre automaticamente l'app nella
  * nuova versione; al riavvio, cleanupOldDownloads elimina l'APK scaricato.
  */
 object UpdateManager {
@@ -105,9 +105,9 @@ object UpdateManager {
     }
 
     /**
-     * Installa tramite PackageInstaller: a differenza del semplice ACTION_VIEW, al termine
-     * dell'installazione il sistema notifica UpdateInstallReceiver, che riapre subito
-     * l'app aggiornata (niente schermata finale con il solo tasto Esci).
+     * Installa tramite PackageInstaller: gli stati dell'installazione arrivano alla
+     * UpdateInstallActivity (invisibile), che mostra la conferma di sistema e, a
+     * installazione completata, riapre subito l'app aggiornata.
      */
     private fun installViaPackageInstaller(c: Context, apk: File) {
         val installer = c.packageManager.packageInstaller
@@ -118,13 +118,14 @@ object UpdateManager {
                 apk.inputStream().use { it.copyTo(outStream) }
                 session.fsync(outStream)
             }
-            val intent = Intent(c, UpdateInstallReceiver::class.java)
+            val intent = Intent(c, UpdateInstallActivity::class.java)
                 .setAction("com.telegramfiretv.UPDATE_STATUS")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             val flags = if (Build.VERSION.SDK_INT >= 31)
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
             else
                 PendingIntent.FLAG_UPDATE_CURRENT
-            val pending = PendingIntent.getBroadcast(c, 0, intent, flags)
+            val pending = PendingIntent.getActivity(c, 0, intent, flags)
             session.commit(pending.intentSender)
         }
     }
