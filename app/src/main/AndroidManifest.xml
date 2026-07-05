@@ -65,6 +65,11 @@
             android:name=".ui.AboutActivity"
             android:exported="false" />
 
+        <!-- Riceve l'esito dell'installazione dell'aggiornamento e riapre l'app. -->
+        <receiver
+            android:name=".UpdateInstallReceiver"
+            android:exported="false" />
+
         <!-- Espone in modo sicuro l'APK scaricato all'installer di sistema. -->
         <provider
             android:name="androidx.core.content.FileProvider"
