@@ -388,6 +388,8 @@ class PlayerActivity : FragmentActivity() {
         if (started || stopped) return
         val exo = player ?: return
         posKey = keyFor(file)
+        // Segna il file come "già visto" (flag mostrato negli elenchi dei canali).
+        Settings.markWatched(this, posKey)
         setStatus("Avvio streaming…")
 
         val factory = TdDataSource.Factory(targetFileId, knownSize, estimatedBufferBytes())
@@ -478,6 +480,8 @@ class PlayerActivity : FragmentActivity() {
         started = true
         status.visibility = View.GONE
         val exo = player ?: return
+        // Segna il file come "già visto" (flag mostrato negli elenchi dei canali).
+        if (posKey.isNotEmpty()) Settings.markWatched(this, posKey)
 
         // In download classico NON cancelliamo il file precedente: resta in cache, così
         // rivederlo subito non richiede di riscaricarlo. (La pulizia delle cache di streaming
