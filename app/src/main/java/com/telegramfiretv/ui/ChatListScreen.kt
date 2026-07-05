@@ -69,13 +69,11 @@ class ChatGridFragment : VerticalGridSupportFragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-        // Elimina lo spazio vuoto sopra la griglia: di default Leanback tiene la riga
-        // selezionata verso il centro dello schermo, lasciando un grande vuoto in alto.
-        // Ancoriamo la griglia al bordo superiore, subito sotto la barra dei pulsanti.
+        // Elimina lo spazio vuoto sopra la griglia senza toccare la navigazione:
+        // BOTH_EDGE ancora le prime righe al bordo alto e le ultime al bordo basso,
+        // con scorrimento e selezione normali (è l'allineamento standard di Android TV).
         view.findViewById<VerticalGridView>(androidx.leanback.R.id.browse_grid)?.apply {
-            windowAlignment = BaseGridView.WINDOW_ALIGN_LOW_EDGE
-            windowAlignmentOffset = 0
-            windowAlignmentOffsetPercent = BaseGridView.WINDOW_ALIGN_OFFSET_PERCENT_DISABLED
+            windowAlignment = BaseGridView.WINDOW_ALIGN_BOTH_EDGE
             setPadding(paddingLeft, 24, paddingRight, paddingBottom)
         }
     }
