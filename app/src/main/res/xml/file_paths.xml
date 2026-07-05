@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Cartelle da cui il FileProvider può servire l'APK di aggiornamento. -->
+    <external-files-path name="updates" path="." />
+    <cache-path name="cache" path="." />
+</paths>
