@@ -252,7 +252,21 @@ class SettingsActivity : FragmentActivity() {
         updateBtn.text = "Update"
         updateBtn.setOnClickListener {
             updateBtn.text = "Update — controllo…"
-            UpdateManager.checkAndInstall(this) { s -> runOnUiThread { updateBtn.text = s } }
+            UpdateManager.checkForUpdate(
+                this,
+                onStatus = { s -> runOnUiThread { updateBtn.text = s } },
+                onFound = { ver, start ->
+                    runOnUiThread {
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("Aggiornamento disponibile")
+                            .setMessage("È disponibile FiregramTV $ver (installata: ${com.telegramfiretv.BuildConfig.VERSION_NAME}).\nScaricare e installare?")
+                            .setPositiveButton("Sì") { _, _ -> start() }
+                            .setNegativeButton("No") { _, _ -> updateBtn.text = "Update" }
+                            .setCancelable(true)
+                            .show()
+                    }
+                }
+            )
         }
         menuButtons.add(updateBtn)
 

@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
@@ -64,6 +65,19 @@ class ChatGridFragment : VerticalGridSupportFragment() {
         TdClient.addChatsListener(chatsListener)
         TdClient.loadChats(200)
         refresh()
+    }
+
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
+        // Elimina lo spazio vuoto sopra la griglia: di default Leanback tiene la riga
+        // selezionata verso il centro dello schermo, lasciando un grande vuoto in alto.
+        // Ancoriamo la griglia al bordo superiore, subito sotto la barra dei pulsanti.
+        view.findViewById<VerticalGridView>(androidx.leanback.R.id.browse_grid)?.apply {
+            windowAlignment = BaseGridView.WINDOW_ALIGN_LOW_EDGE
+            windowAlignmentOffset = 0
+            windowAlignmentOffsetPercent = BaseGridView.WINDOW_ALIGN_OFFSET_PERCENT_DISABLED
+            setPadding(paddingLeft, 24, paddingRight, paddingBottom)
+        }
     }
 
     private fun refresh() {
