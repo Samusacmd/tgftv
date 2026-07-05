@@ -289,8 +289,14 @@ class BotChatActivity : FragmentActivity() {
             if (media != null) {
                 val idx = mediaRefs.size
                 mediaRefs.add(media)
-                val icon = if (media.second == 2) "🖼" else "▶"
-                addMessageBubble("$icon  ${media.third}", mine, true) { playMediaAt(mediaRefs.toList(), idx) }
+                val photoContent = m.content as? TdApi.MessagePhoto
+                if (media.second == 2 && photoContent != null && Settings.showChatImages(this)) {
+                    // Foto: piccola anteprima nella chat invece della sola scritta.
+                    addPhotoPreview(photoContent, mine) { playMediaAt(mediaRefs.toList(), idx) }
+                } else {
+                    val icon = if (media.second == 2) "🖼" else "▶"
+                    addMessageBubble("$icon  ${media.third}", mine, true) { playMediaAt(mediaRefs.toList(), idx) }
+                }
             } else if (isSticker) {
                 val sticker = (m.content as TdApi.MessageSticker).sticker
                 addStickerView(sticker.sticker.id, sticker.sticker.local.path, sticker.format, sticker.emoji, mine)
@@ -549,6 +555,13 @@ class BotChatActivity : FragmentActivity() {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessageAnimatedEmoji -> c.emoji
             is TdApi.MessageSticker -> null
+            is TdApi.MessageDocument -> {
+                // Documento non riproducibile: mostra il nome completo del file (con
+                // estensione) invece del generico "[document]"; la didascalia, se c'è, sotto.
+                val name = c.document.fileName.ifEmpty { "Documento" }
+                val cap = c.caption.text
+                if (cap.isBlank()) "📄 $name" else "📄 $name\n$cap"
+            }
             else -> "[" + c.javaClass.simpleName.removePrefix("Message").lowercase() + "]"
         }
     }
@@ -762,6 +775,63 @@ class BotChatActivity : FragmentActivity() {
             bubble.setOnClickListener { onClick() }
         }
         wrapInRow(bubble, mine)
+    }
+
+    /**
+     * Piccola anteprima della foto nella chat: mostra subito la mini-miniatura inclusa nel
+     * messaggio (istantanea, nessun download), poi scarica la versione piccola e la
+     * sostituisce. Cliccabile: apre la foto a schermo intero come prima.
+     */
+    private fun addPhotoPreview(c: TdApi.MessagePhoto, mine: Boolean, onClick: () -> Unit) {
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(320, 200)
+            c.photo.minithumbnail?.data?.let { d ->
+                runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                    ?.let { setImageBitmap(it) }
+            }
+        }
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 26f
+                setColor(if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            setPadding(12, 12, 12, 12)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            addView(img)
+            val cap = c.caption.text
+            if (cap.isNotBlank()) addView(TextView(this@BotChatActivity).apply {
+                text = cap
+                setTextColor(0xFFE6EDF2.toInt())
+                textSize = 14f
+                maxWidth = 320
+                setPadding(4, 8, 4, 0)
+            })
+            isFocusable = true
+            setOnFocusChangeListener { v, has ->
+                (v.background as? GradientDrawable)
+                    ?.setColor(if (has) 0xFF3E6FA8.toInt() else if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            setOnClickListener { onClick() }
+        }
+        wrapInRow(bubble, mine)
+
+        // Scarica la versione piccola e rimpiazza la mini sfocata appena pronta.
+        val small = c.photo.sizes.minByOrNull { it.width * it.height }?.photo ?: return
+        if (small.local.isDownloadingCompleted && small.local.path.isNotEmpty()) {
+            runCatching { BitmapFactory.decodeFile(small.local.path) }.getOrNull()
+                ?.let { img.setImageBitmap(it) }
+        } else {
+            TdClient.downloadFilePath(small.id) { path ->
+                runOnUiThread {
+                    runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                        ?.let { img.setImageBitmap(it) }
+                }
+            }
+        }
     }
 
     /** Incolonna [content] a destra se [mine], a sinistra altrimenti, aggiungendolo a messagesBox. */

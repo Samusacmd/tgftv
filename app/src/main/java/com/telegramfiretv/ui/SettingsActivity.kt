@@ -86,6 +86,22 @@ object Settings {
         val v = (streamingBufferSec(c) + deltaSec).coerceIn(5, 120)
         p(c).edit().putInt("streaming_buffer_sec", v).apply(); return v
     }
+
+    // ---- File video/audio già visti ----
+    // Chiave = id univoco remoto del file (stessa chiave delle posizioni di ripresa):
+    // stabile tra sessioni e tra chat diverse che contengono lo stesso file.
+    fun isWatched(c: Context, key: String): Boolean =
+        key.isNotEmpty() && (p(c).getStringSet("watched", emptySet()) ?: emptySet()).contains(key)
+
+    fun markWatched(c: Context, key: String) {
+        if (key.isEmpty()) return
+        val cur = HashSet(p(c).getStringSet("watched", emptySet()) ?: emptySet())
+        if (cur.add(key)) p(c).edit().putStringSet("watched", cur).apply()
+    }
+
+    fun watchedCount(c: Context): Int = (p(c).getStringSet("watched", emptySet()) ?: emptySet()).size
+
+    fun clearWatched(c: Context) { p(c).edit().remove("watched").apply() }
 }
 
 class SettingsActivity : FragmentActivity() {
@@ -201,6 +217,16 @@ class SettingsActivity : FragmentActivity() {
             startActivity(android.content.Intent(this, WriteSettingsActivity::class.java))
         }
         root.addView(writeBtn)
+
+        val watchedBtn = makeButton()
+        watchedBtn.text = "Azzera file già visti (${Settings.watchedCount(this)})"
+        watchedBtn.setOnClickListener {
+            Settings.clearWatched(this)
+            MediaListActivity.clearCache()
+            watchedBtn.text = "Azzera file già visti  ✓"
+            Toast.makeText(this, "Elenco dei file visti azzerato", Toast.LENGTH_SHORT).show()
+        }
+        root.addView(watchedBtn)
 
         val logoutBtn = makeButton()
         logoutBtn.text = "Disconnetti account"

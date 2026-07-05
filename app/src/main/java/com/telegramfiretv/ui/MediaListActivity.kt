@@ -34,8 +34,14 @@ data class MediaEntry(
     val type: String,
     val durationSec: Int,
     val mini: ByteArray?,
-    val thumbFile: TdApi.File?
+    val thumbFile: TdApi.File?,
+    // Chiave per il flag "già visto": id univoco remoto del file, la stessa chiave che il
+    // player usa per posizioni e visti. Vuota per i tipi non tracciati (foto).
+    val watchKey: String = ""
 )
+
+/** Stessa chiave usata dal player (keyFor): id remoto stabile, con ripiego sull'id locale. */
+private fun watchKeyOf(f: TdApi.File): String = f.remote.uniqueId.ifEmpty { "fid_${f.id}" }
 
 data class TopicEntry(val forumTopicId: Int, val name: String, val mini: ByteArray?, val thumbFile: TdApi.File?)
 
@@ -406,24 +412,24 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private fun extractMedia(msg: TdApi.Message): MediaEntry? {
         return when (val c = msg.content) {
             is TdApi.MessageVideo ->
-                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration, c.video.minithumbnail?.data, c.video.thumbnail?.file)
+                MediaEntry(c.video.video.id, c.video.fileName.ifEmpty { c.caption.text.ifEmpty { "Video" } }, "Video", c.video.duration, c.video.minithumbnail?.data, c.video.thumbnail?.file, watchKeyOf(c.video.video))
             is TdApi.MessageAudio -> {
                 val name = listOf(c.audio.performer, c.audio.title).filter { it.isNotBlank() }
                     .joinToString(" - ").ifEmpty { c.audio.fileName.ifEmpty { "Audio" } }
-                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration, c.audio.albumCoverMinithumbnail?.data, c.audio.albumCoverThumbnail?.file)
+                MediaEntry(c.audio.audio.id, name, "Audio", c.audio.duration, c.audio.albumCoverMinithumbnail?.data, c.audio.albumCoverThumbnail?.file, watchKeyOf(c.audio.audio))
             }
-            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration, null, null)
-            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data, c.videoNote.thumbnail?.file)
-            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data, c.animation.thumbnail?.file)
+            is TdApi.MessageVoiceNote -> MediaEntry(c.voiceNote.voice.id, "Messaggio vocale", "Audio", c.voiceNote.duration, null, null, watchKeyOf(c.voiceNote.voice))
+            is TdApi.MessageVideoNote -> MediaEntry(c.videoNote.video.id, "Video messaggio", "Video", c.videoNote.duration, c.videoNote.minithumbnail?.data, c.videoNote.thumbnail?.file, watchKeyOf(c.videoNote.video))
+            is TdApi.MessageAnimation -> MediaEntry(c.animation.animation.id, c.animation.fileName.ifEmpty { "GIF" }, "Video", c.animation.duration, c.animation.minithumbnail?.data, c.animation.thumbnail?.file, watchKeyOf(c.animation.animation))
             is TdApi.MessageDocument -> {
                 val doc = c.document
                 val mime = doc.mimeType
                 val ext = doc.fileName.substringAfterLast('.', "").lowercase()
                 when {
                     mime.startsWith("video/") || ext in VIDEO_EXT ->
-                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Video" }, "Video", 0, doc.minithumbnail?.data, doc.thumbnail?.file)
+                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Video" }, "Video", 0, doc.minithumbnail?.data, doc.thumbnail?.file, watchKeyOf(doc.document))
                     mime.startsWith("audio/") || ext in AUDIO_EXT ->
-                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Audio" }, "Audio", 0, doc.minithumbnail?.data, doc.thumbnail?.file)
+                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Audio" }, "Audio", 0, doc.minithumbnail?.data, doc.thumbnail?.file, watchKeyOf(doc.document))
                     else -> null
                 }
             }
@@ -458,7 +464,8 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as MediaEntry
         val card = viewHolder.view as ImageCardView
-        card.titleText = e.title
+        val seen = e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)
+        card.titleText = if (seen) "✓ ${e.title}" else e.title
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
         card.findViewById<TextView>(androidx.leanback.R.id.title_text)?.apply {
@@ -491,7 +498,8 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as MediaEntry
         val v = viewHolder.view
-        v.findViewById<TextView>(R.id.title).apply { text = e.title; isSelected = true }
+        val seen = e.watchKey.isNotEmpty() && Settings.isWatched(v.context, e.watchKey)
+        v.findViewById<TextView>(R.id.title).apply { text = if (seen) "✓ ${e.title}" else e.title; isSelected = true }
         val dur = formatDuration(e.durationSec)
         v.findViewById<TextView>(R.id.subtitle).text =
             if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
