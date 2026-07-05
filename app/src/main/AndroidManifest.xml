@@ -65,10 +65,13 @@
             android:name=".ui.AboutActivity"
             android:exported="false" />
 
-        <!-- Riceve l'esito dell'installazione dell'aggiornamento e riapre l'app. -->
-        <receiver
-            android:name=".UpdateInstallReceiver"
-            android:exported="false" />
+        <!-- Activity invisibile: riceve l'esito dell'installazione dell'aggiornamento,
+             apre la conferma di sistema e riapre l'app a installazione completata. -->
+        <activity
+            android:name=".UpdateInstallActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
 
         <!-- Espone in modo sicuro l'APK scaricato all'installer di sistema. -->
         <provider
