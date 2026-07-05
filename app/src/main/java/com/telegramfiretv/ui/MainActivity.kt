@@ -13,6 +13,7 @@ import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.BuildConfig
 import com.telegramfiretv.R
+import com.telegramfiretv.UpdateManager
 
 class MainActivity : FragmentActivity() {
 
@@ -24,6 +25,8 @@ class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Elimina l'APK di un eventuale aggiornamento precedente (ormai installato).
+        UpdateManager.cleanupOldDownloads(this)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -49,7 +52,7 @@ class MainActivity : FragmentActivity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
             addView(TextView(this@MainActivity).apply {
-                text = "Firegramtv"
+                text = "FiregramTV"
                 setTypeface(typeface, Typeface.BOLD)
                 setTextColor(0xFFFFFFFF.toInt())
                 textSize = 22f
