@@ -3,6 +3,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Necessario per avviare l'installazione dell'APK di aggiornamento (tasto Update). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Richiede una TV (Leanback), la touch non è obbligatoria -->
     <uses-feature
@@ -38,11 +40,11 @@
             android:exported="false"
             android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
             android:theme="@style/Theme.TelegramFireTV" />
-        
+
         <activity
             android:name=".ui.MediaListActivity"
             android:exported="false" />
-        
+
         <activity
             android:name=".ui.SettingsActivity"
             android:exported="false" />
@@ -58,5 +60,20 @@
         <activity
             android:name=".ui.WriteSettingsActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".ui.AboutActivity"
+            android:exported="false" />
+
+        <!-- Espone in modo sicuro l'APK scaricato all'installer di sistema. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 </manifest>
