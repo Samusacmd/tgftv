@@ -112,9 +112,16 @@ jobs:
             -PAPI_ID="${{ secrets.API_ID }}" \
             -PAPI_HASH="${{ secrets.API_HASH }}"
 
+      - name: Rinomina l'APK con nome e versione (FiregramTV-1.0.N.apk)
+        run: |
+          apk="$(ls app/build/outputs/apk/debug/*.apk | head -n1)"
+          out="app/build/outputs/apk/debug/FiregramTV-1.0.${{ github.run_number }}.apk"
+          mv "$apk" "$out"
+          echo "APK finale: $out"
+
       - name: Carica l'APK come artifact
         uses: actions/upload-artifact@v4
         with:
-          name: telegram-firetv-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: FiregramTV-1.0.${{ github.run_number }}
+          path: app/build/outputs/apk/debug/FiregramTV-*.apk
           if-no-files-found: error
