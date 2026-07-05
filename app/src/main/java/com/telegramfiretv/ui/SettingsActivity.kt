@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.R
+import com.telegramfiretv.UpdateManager
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
 
@@ -130,30 +131,33 @@ class SettingsActivity : FragmentActivity() {
             setPadding(0, 0, 0, 32)
         })
 
+        // I pulsanti del menu vengono raccolti qui e poi disposti in griglia a due colonne.
+        val menuButtons = mutableListOf<Button>()
+
         val chatViewBtn = makeButton()
         chatViewBtn.text = "Vista chat: ${if (Settings.chatViewMode(this) == "grid") "Griglia" else "Elenco"}"
         chatViewBtn.setOnClickListener {
             val v = Settings.cycleChatView(this)
             chatViewBtn.text = "Vista chat: ${if (v == "grid") "Griglia" else "Elenco"}"
         }
-        root.addView(chatViewBtn)
+        menuButtons.add(chatViewBtn)
 
         val chatImgBtn = makeButton()
         fun imgLabel() = "Immagini chat: ${if (Settings.showChatImages(this)) "Sì" else "No"}"
         chatImgBtn.text = imgLabel()
         chatImgBtn.setOnClickListener { Settings.toggleChatImages(this); chatImgBtn.text = imgLabel() }
-        root.addView(chatImgBtn)
+        menuButtons.add(chatImgBtn)
 
         val filterBtn = makeButton()
         fun filterLabel() = "Mostra: ${if (Settings.mediaFilter(this) == "all") "Tutto" else "Solo video e audio"}"
         filterBtn.text = filterLabel()
         filterBtn.setOnClickListener { Settings.cycleMediaFilter(this); filterBtn.text = filterLabel() }
-        root.addView(filterBtn)
+        menuButtons.add(filterBtn)
 
         val gridBtn = makeButton()
         gridBtn.text = "Colonne griglia: ${Settings.gridColumns(this)}"
         gridBtn.setOnClickListener { gridBtn.text = "Colonne griglia: ${Settings.cycleGridColumns(this)}" }
-        root.addView(gridBtn)
+        menuButtons.add(gridBtn)
 
         val listBtn = makeButton()
         fun widthLabel() = "Larghezza elenco: ${Settings.listWidthPercent(this)}%  ◀ ▶"
@@ -167,19 +171,19 @@ class SettingsActivity : FragmentActivity() {
                 }
             } else false
         }
-        root.addView(listBtn)
+        menuButtons.add(listBtn)
 
         val dimBtn = makeButton()
         fun dimLabel() = "Oscuramento player in pausa: ${if (Settings.playerDim(this)) "Sì" else "No"}"
         dimBtn.text = dimLabel()
         dimBtn.setOnClickListener { Settings.togglePlayerDim(this); dimBtn.text = dimLabel() }
-        root.addView(dimBtn)
+        menuButtons.add(dimBtn)
 
         val streamBtn = makeButton()
         fun streamLabel() = "Riproduzione in streaming: ${if (Settings.streamingEnabled(this)) "Attiva" else "Disattiva"}"
         streamBtn.text = streamLabel()
         streamBtn.setOnClickListener { Settings.toggleStreaming(this); streamBtn.text = streamLabel() }
-        root.addView(streamBtn)
+        menuButtons.add(streamBtn)
 
         val bufferBtn = makeButton()
         fun bufferLabel() = "Buffer iniziale streaming: ${Settings.streamingBufferSec(this)}s  ◀ ▶"
@@ -193,7 +197,7 @@ class SettingsActivity : FragmentActivity() {
                 }
             } else false
         }
-        root.addView(bufferBtn)
+        menuButtons.add(bufferBtn)
 
         val refreshBtn = makeButton()
         refreshBtn.text = "Aggiorna chat"
@@ -203,7 +207,7 @@ class SettingsActivity : FragmentActivity() {
             Toast.makeText(this, "Chat aggiornate", Toast.LENGTH_SHORT).show()
             refreshBtn.text = "Aggiorna chat  ✓"
         }
-        root.addView(refreshBtn)
+        menuButtons.add(refreshBtn)
 
         val cacheBtn = makeButton()
         cacheBtn.text = "Svuota cache"
@@ -218,14 +222,14 @@ class SettingsActivity : FragmentActivity() {
                 }
             }
         }
-        root.addView(cacheBtn)
+        menuButtons.add(cacheBtn)
 
         val writeBtn = makeButton()
         writeBtn.text = "Abilita scrittura  ▸"
         writeBtn.setOnClickListener {
             startActivity(android.content.Intent(this, WriteSettingsActivity::class.java))
         }
-        root.addView(writeBtn)
+        menuButtons.add(writeBtn)
 
         val watchedBtn = makeButton()
         watchedBtn.text = "Azzera file già visti (${Settings.watchedCount(this)})"
@@ -235,7 +239,22 @@ class SettingsActivity : FragmentActivity() {
             watchedBtn.text = "Azzera file già visti  ✓"
             Toast.makeText(this, "Elenco dei file visti azzerato", Toast.LENGTH_SHORT).show()
         }
-        root.addView(watchedBtn)
+        menuButtons.add(watchedBtn)
+
+        val aboutBtn = makeButton()
+        aboutBtn.text = "Informazioni"
+        aboutBtn.setOnClickListener {
+            startActivity(android.content.Intent(this, AboutActivity::class.java))
+        }
+        menuButtons.add(aboutBtn)
+
+        val updateBtn = makeButton()
+        updateBtn.text = "Update"
+        updateBtn.setOnClickListener {
+            updateBtn.text = "Update — controllo…"
+            UpdateManager.checkAndInstall(this) { s -> runOnUiThread { updateBtn.text = s } }
+        }
+        menuButtons.add(updateBtn)
 
         val logoutBtn = makeButton()
         logoutBtn.text = "Disconnetti account"
@@ -254,7 +273,25 @@ class SettingsActivity : FragmentActivity() {
                 logoutBtn.setTextColor(0xFFFFFFFF.toInt())
             }
         }
-        root.addView(logoutBtn)
+        menuButtons.add(logoutBtn)
+
+        // Griglia a due colonne: tasti più compatti e metà scorrimento rispetto all'elenco.
+        var i = 0
+        while (i < menuButtons.size) {
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            row.addView(menuButtons[i], LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { rightMargin = 16; bottomMargin = 12 })
+            if (i + 1 < menuButtons.size) {
+                row.addView(menuButtons[i + 1], LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply { bottomMargin = 12 })
+            } else {
+                row.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+            }
+            root.addView(row)
+            i += 2
+        }
 
         // Scorrimento rapido: dal primo elemento premendo SU si salta all'ultimo (e
         // dall'ultimo premendo GIÙ si torna al primo). Così le impostazioni in fondo si
@@ -273,14 +310,8 @@ class SettingsActivity : FragmentActivity() {
             setBackgroundResource(R.drawable.bg_button)
             setTextColor(0xFFFFFFFF.toInt())
             isAllCaps = false
-            textSize = 18f
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            lp.bottomMargin = 24
-            layoutParams = lp
-            setPadding(32, 28, 32, 28)
+            textSize = 15f
+            setPadding(24, 18, 24, 18)
         }
     }
 }
