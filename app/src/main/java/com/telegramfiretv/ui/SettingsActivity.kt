@@ -101,6 +101,15 @@ object Settings {
 
     fun watchedCount(c: Context): Int = (p(c).getStringSet("watched", emptySet()) ?: emptySet()).size
 
+    /** Inverte lo stato "già visto" del file. Ritorna il nuovo stato (true = visto). */
+    fun toggleWatched(c: Context, key: String): Boolean {
+        if (key.isEmpty()) return false
+        val cur = HashSet(p(c).getStringSet("watched", emptySet()) ?: emptySet())
+        val now = if (cur.contains(key)) { cur.remove(key); false } else { cur.add(key); true }
+        p(c).edit().putStringSet("watched", cur).apply()
+        return now
+    }
+
     fun clearWatched(c: Context) { p(c).edit().remove("watched").apply() }
 }
 

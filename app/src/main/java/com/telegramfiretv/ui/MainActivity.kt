@@ -1,13 +1,17 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.Typeface
 import android.os.Bundle
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.fragment.app.FragmentActivity
+import com.telegramfiretv.BuildConfig
 import com.telegramfiretv.R
 
 class MainActivity : FragmentActivity() {
@@ -39,6 +43,23 @@ class MainActivity : FragmentActivity() {
         bar.addView(chatTab)
         bar.addView(archiveTab)
         bar.addView(searchBtn)
+        // Spinge l'intestazione sul bordo destro della barra.
+        bar.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        bar.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+            addView(TextView(this@MainActivity).apply {
+                text = "Firegramtv"
+                setTypeface(typeface, Typeface.BOLD)
+                setTextColor(0xFFFFFFFF.toInt())
+                textSize = 22f
+            })
+            addView(TextView(this@MainActivity).apply {
+                text = "build ${BuildConfig.VERSION_NAME}"
+                setTextColor(0xFFAAB4BE.toInt())
+                textSize = 12f
+            })
+        })
         root.addView(
             bar,
             LinearLayout.LayoutParams(

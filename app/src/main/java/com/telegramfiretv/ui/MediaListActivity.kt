@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.text.TextUtils
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
@@ -452,20 +453,50 @@ class MediaGridFragment : VerticalGridSupportFragment() {
 }
 
 class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
+    /** ViewHolder con riferimento alla stellina e all'elemento associato (per il toggle). */
+    private class VH(view: View, val star: TextView) : Presenter.ViewHolder(view) {
+        var entry: MediaEntry? = null
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val card = ImageCardView(parent.context).apply {
             isFocusable = true
             isFocusableInTouchMode = true
             setMainImageDimensions(280, 158)
         }
-        return ViewHolder(card)
+        // Stellina gialla in sovrimpressione sull'angolo in alto a destra dell'anteprima.
+        val star = TextView(parent.context).apply {
+            text = "⭐"
+            textSize = 20f
+            setShadowLayer(4f, 0f, 0f, 0xFF000000.toInt())
+            visibility = View.GONE
+            layoutParams = FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.END
+            ).apply { topMargin = 4; rightMargin = 8 }
+        }
+        card.addView(star)
+        val vh = VH(card, star)
+        // Pressione prolungata (OK tenuto premuto): inverte lo stato "già visto".
+        card.setOnLongClickListener { v ->
+            val e = vh.entry ?: return@setOnLongClickListener false
+            if (e.watchKey.isEmpty()) return@setOnLongClickListener false
+            val now = Settings.toggleWatched(v.context, e.watchKey)
+            star.visibility = if (now) View.VISIBLE else View.GONE
+            Toast.makeText(v.context, if (now) "Segnato come già riprodotto" else "Segnato come non riprodotto", Toast.LENGTH_SHORT).show()
+            true
+        }
+        return vh
     }
 
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as MediaEntry
+        val vh = viewHolder as VH
+        vh.entry = e
         val card = viewHolder.view as ImageCardView
-        val seen = e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)
-        card.titleText = if (seen) "✓ ${e.title}" else e.title
+        card.titleText = e.title
+        vh.star.visibility =
+            if (e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)) View.VISIBLE else View.GONE
         val dur = formatDuration(e.durationSec)
         card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
         card.findViewById<TextView>(androidx.leanback.R.id.title_text)?.apply {
@@ -479,6 +510,8 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
         val card = viewHolder.view as ImageCardView
+        (viewHolder as VH).entry = null
+        viewHolder.star.visibility = View.GONE
         card.titleText = null
         card.contentText = null
         card.mainImage = null
@@ -487,19 +520,36 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
 }
 
 class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
+    private class VH(view: View, val star: TextView) : Presenter.ViewHolder(view) {
+        var entry: MediaEntry? = null
+    }
+
     override fun onCreateViewHolder(parent: ViewGroup): ViewHolder {
         val v = LayoutInflater.from(parent.context).inflate(R.layout.item_media_list, parent, false)
         val pct = Settings.listWidthPercent(parent.context)
         val width = parent.context.resources.displayMetrics.widthPixels * pct / 100
         v.layoutParams?.let { it.width = width }
-        return ViewHolder(v)
+        val vh = VH(v, v.findViewById(R.id.watchedStar))
+        // Pressione prolungata (OK tenuto premuto): inverte lo stato "già visto".
+        v.setOnLongClickListener { view ->
+            val e = vh.entry ?: return@setOnLongClickListener false
+            if (e.watchKey.isEmpty()) return@setOnLongClickListener false
+            val now = Settings.toggleWatched(view.context, e.watchKey)
+            vh.star.visibility = if (now) View.VISIBLE else View.GONE
+            Toast.makeText(view.context, if (now) "Segnato come già riprodotto" else "Segnato come non riprodotto", Toast.LENGTH_SHORT).show()
+            true
+        }
+        return vh
     }
 
     override fun onBindViewHolder(viewHolder: ViewHolder, item: Any) {
         val e = item as MediaEntry
+        val vh = viewHolder as VH
+        vh.entry = e
         val v = viewHolder.view
-        val seen = e.watchKey.isNotEmpty() && Settings.isWatched(v.context, e.watchKey)
-        v.findViewById<TextView>(R.id.title).apply { text = if (seen) "✓ ${e.title}" else e.title; isSelected = true }
+        v.findViewById<TextView>(R.id.title).apply { text = e.title; isSelected = true }
+        vh.star.visibility =
+            if (e.watchKey.isNotEmpty() && Settings.isWatched(v.context, e.watchKey)) View.VISIBLE else View.GONE
         val dur = formatDuration(e.durationSec)
         v.findViewById<TextView>(R.id.subtitle).text =
             if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
@@ -507,6 +557,8 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
     }
 
     override fun onUnbindViewHolder(viewHolder: ViewHolder) {
+        (viewHolder as VH).entry = null
+        viewHolder.star.visibility = View.GONE
         viewHolder.view.findViewById<ImageView>(R.id.thumb)?.apply { setImageBitmap(null); tag = null }
     }
 }
