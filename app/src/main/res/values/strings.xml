@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Telegram Fire TV</string>
+    <string name="app_name">FiregramTV</string>
     <string name="login_title">Accedi a Telegram</string>
     <string name="hint_phone">Numero (es. +39…)</string>
     <string name="hint_code">Codice ricevuto</string>
