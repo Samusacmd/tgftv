@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.text.InputType
 import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
@@ -66,6 +67,17 @@ class BotChatActivity : FragmentActivity() {
     private var emptyRetries = 5
     private var lastSig: String = ""
 
+    // --- Lettura a ritroso automatica ---
+    // loadingOlder evita richieste sovrapposte; noMoreOlder segna che la conversazione è
+    // finita (la riga in alto diventa un'etichetta); pendingAnchorId è il messaggio a cui
+    // riancorare la vista dopo il caricamento, così la lettura riprende da dove si era;
+    // autoLoadArmed evita che l'apertura della chat (che parte da scroll 0 prima di
+    // scendere in fondo) inneschi un caricamento involontario.
+    private var loadingOlder = false
+    private var noMoreOlder = false
+    private var pendingAnchorId = 0L
+    private var autoLoadArmed = false
+
     /**
      * Firma della lista messaggi usata per decidere se ridisegnare. Include, oltre a id e
      * numero, anche editDate e l'hash del testo di ogni messaggio: alcuni bot rispondono ai
@@ -115,6 +127,13 @@ class BotChatActivity : FragmentActivity() {
 
         messagesBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         messagesScroll = ScrollView(this).apply { isFocusable = false; addView(messagesBox) }
+        // Arrivati in cima scorrendo (anche senza elementi selezionabili), carica da solo
+        // i messaggi precedenti: la chat si legge a ritroso senza premere nulla.
+        messagesScroll.viewTreeObserver.addOnScrollChangedListener {
+            if (autoLoadArmed && messagesScroll.scrollY <= 20 &&
+                messagesBox.height > messagesScroll.height && lastMessages.isNotEmpty()
+            ) loadOlder()
+        }
         root.addView(messagesScroll, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 2f
         ).apply { bottomMargin = 12 })
@@ -241,21 +260,49 @@ class BotChatActivity : FragmentActivity() {
     }
 
     private fun loadOlder() {
+        if (loadingOlder || noMoreOlder) return
         val oldestId = lastMessages.lastOrNull()?.id ?: return
+        loadingOlder = true
         val cb: (TdApi.Object) -> Unit = { result ->
             val more = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
             runOnUiThread {
+                loadingOlder = false
                 if (more.isNotEmpty()) {
                     lastMessages = (lastMessages + more).distinctBy { it.id }.sortedByDescending { it.id }
                     lastSig = sigOf(lastMessages)
-                    renderWithSenders(lastMessages, false)
                 } else {
-                    Toast.makeText(this, "Nessun messaggio precedente", Toast.LENGTH_SHORT).show()
+                    // Conversazione finita: la riga in alto diventa un'etichetta fissa.
+                    noMoreOlder = true
                 }
+                // Riancora la vista al messaggio che era il più vecchio visibile: la lettura
+                // riprende esattamente da lì, con i messaggi più vecchi appena caricati sopra.
+                pendingAnchorId = oldestId
+                renderWithSenders(lastMessages, scrollBottom = false)
             }
         }
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, oldestId, 25, cb)
         else TdClient.getChatHistory(chatId, oldestId, 25, cb)
+    }
+
+    /** Porta il focus (o lo scroll) sulle righe del messaggio indicato. */
+    private fun focusAnchor(msgId: Long) {
+        for (i in 0 until messagesBox.childCount) {
+            val row = messagesBox.getChildAt(i)
+            if (row.tag == msgId) {
+                val target = findFocusableIn(row)
+                if (target != null) target.requestFocus()
+                else messagesScroll.scrollTo(0, row.top)
+                return
+            }
+        }
+    }
+
+    private fun findFocusableIn(v: View): View? {
+        if (v.isFocusable) return v
+        if (v is ViewGroup) {
+            for (i in 0 until v.childCount) findFocusableIn(v.getChildAt(i))?.let { return it }
+        }
+        return null
     }
 
     private fun render(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
@@ -272,11 +319,22 @@ class BotChatActivity : FragmentActivity() {
 
     private fun renderInner(msgs: List<TdApi.Message>, scrollBottom: Boolean = true) {
         messagesBox.removeAllViews()
-        addLoaderRow("↑  Messaggi precedenti") { loadOlder() }
+        if (noMoreOlder) {
+            messagesBox.addView(TextView(this).apply {
+                text = "—  Inizio della conversazione  —"
+                setTextColor(0xFF8899A6.toInt())
+                textSize = 14f
+                setPadding(16, 16, 16, 16)
+            })
+        } else {
+            // Basta arrivarci col focus: il caricamento parte da solo, senza premere OK.
+            addLoaderRow("↑  Messaggi precedenti") { loadOlder() }
+        }
         // Raccolgo i media della conversazione per la riproduzione con precedente/successivo.
         val mediaRefs = ArrayList<Triple<Int, Int, String>>()
         var prevSender: String? = null
         for (m in msgs.reversed()) {
+            val rowsBefore = messagesBox.childCount
             val mine = m.isOutgoing
             val media = mediaOf(m)
             val text = if (media == null) messageText(m) else null
@@ -313,8 +371,20 @@ class BotChatActivity : FragmentActivity() {
             // Anteprima link: indipendente dal tipo di contenuto del messaggio (testo, foto con caption, ecc.)
             val lp = (m.content as? TdApi.MessageText)?.linkPreview
             if (lp != null) addLinkPreview(lp, mine)
+            // Marca tutte le righe di questo messaggio con il suo id: serve per riancorare
+            // la vista dopo il caricamento dei messaggi precedenti.
+            for (i in rowsBefore until messagesBox.childCount) messagesBox.getChildAt(i).tag = m.id
         }
-        if (scrollBottom) messagesScroll.post { messagesScroll.fullScroll(View.FOCUS_DOWN) }
+        val anchor = pendingAnchorId
+        pendingAnchorId = 0L
+        if (anchor != 0L) {
+            messagesScroll.post { focusAnchor(anchor) }
+        } else if (scrollBottom) {
+            messagesScroll.post {
+                messagesScroll.fullScroll(View.FOCUS_DOWN)
+                autoLoadArmed = true
+            }
+        }
 
         buttonsBox.removeAllViews()
 
@@ -736,7 +806,10 @@ class BotChatActivity : FragmentActivity() {
             textSize = 16f
             setPadding(16, 16, 16, 16)
             isFocusable = true
-            setOnFocusChangeListener { v, has -> v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000) }
+            setOnFocusChangeListener { v, has ->
+                v.setBackgroundColor(if (has) 0xFF2E6E9E.toInt() else 0x00000000)
+                if (has) onClick()   // il focus basta: nessun tasto da premere
+            }
             setOnClickListener { onClick() }
         }
         messagesBox.addView(tv)
