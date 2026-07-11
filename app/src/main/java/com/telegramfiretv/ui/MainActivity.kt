@@ -43,6 +43,26 @@ class MainActivity : FragmentActivity() {
         chatTab.setOnClickListener { switchTo("main") }
         archiveTab.setOnClickListener { switchTo("archive") }
         searchBtn.setOnClickListener { startActivity(Intent(this, SearchActivity::class.java)) }
+        // Tasto hamburger (☰): apre il menu impostazioni anche sui telecomandi Android TV
+        // senza tasto MENU fisico. Compatto, circa metà degli altri tasti.
+        val menuBtn = Button(this).apply {
+            text = "\u2261"
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            textSize = 20f
+            minWidth = 0
+            minimumWidth = 0
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            lp.rightMargin = 16
+            layoutParams = lp
+            setPadding(20, 16, 20, 16)
+            setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
+        }
+        bar.addView(menuBtn)
         bar.addView(chatTab)
         bar.addView(archiveTab)
         bar.addView(searchBtn)
