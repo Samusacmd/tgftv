@@ -112,16 +112,18 @@ jobs:
             -PAPI_ID="${{ secrets.API_ID }}" \
             -PAPI_HASH="${{ secrets.API_HASH }}"
 
-      - name: Rinomina l'APK con nome e versione (FiregramTV-1.0.N.apk)
+      - name: Rinomina l'APK con nome e versione SemVer (FiregramTV-X.Y.Z.apk)
         run: |
+          ver="$(grep -oP 'val semVer = "\K[0-9]+\.[0-9]+\.[0-9]+' app/build.gradle.kts)"
+          if [ -z "$ver" ]; then echo "Versione SemVer non trovata in build.gradle.kts" >&2; exit 1; fi
           apk="$(ls app/build/outputs/apk/debug/*.apk | head -n1)"
-          out="app/build/outputs/apk/debug/FiregramTV-1.0.${{ github.run_number }}.apk"
+          out="app/build/outputs/apk/debug/FiregramTV-${ver}.apk"
           mv "$apk" "$out"
           echo "APK finale: $out"
 
       - name: Carica l'APK come artifact
         uses: actions/upload-artifact@v4
         with:
-          name: FiregramTV-1.0.${{ github.run_number }}
+          name: FiregramTV-apk
           path: app/build/outputs/apk/debug/FiregramTV-*.apk
           if-no-files-found: error
