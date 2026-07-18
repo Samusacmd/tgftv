@@ -22,6 +22,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import com.telegramfiretv.databinding.ActivityPlayerBinding
@@ -249,7 +250,19 @@ class PlayerActivity : FragmentActivity() {
 
         if (!isPhoto) {
             binding.playerView.visibility = View.VISIBLE
-            val exo = ExoPlayer.Builder(this).build()
+            // Buffer iniziale più generoso: sui dispositivi lenti il player partiva subito
+            // con pochissimo buffer e si bloccava più volte nei primi secondi. Ora attende
+            // 6 secondi di contenuto prima di partire (8 dopo un blocco), con una scorta
+            // che cresce fino a 60s durante la riproduzione.
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    20_000,   // buffer minimo da mantenere
+                    60_000,   // buffer massimo
+                    6_000,    // buffer richiesto prima di INIZIARE la riproduzione
+                    8_000     // buffer richiesto per RIPARTIRE dopo un blocco
+                )
+                .build()
+            val exo = ExoPlayer.Builder(this).setLoadControl(loadControl).build()
             binding.playerView.player = NavPlayer(exo)
             binding.playerView.useController = true
             if (isAudio) {
@@ -310,7 +323,12 @@ class PlayerActivity : FragmentActivity() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_BUFFERING) {
+                        // Attesa del riempimento del buffer: avvisa invece di sembrare bloccato.
+                        setStatus("Caricamento…")
+                    }
                     if (playbackState == Player.STATE_READY) {
+                        status.visibility = View.GONE
                         // Riproduzione avviata davvero: azzera i ritentativi per gli errori futuri.
                         streamingRetries = 0
                     }
