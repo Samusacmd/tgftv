@@ -1,8 +1,14 @@
 package com.telegramfiretv.ui
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Shader
 import android.graphics.drawable.GradientDrawable
+import android.widget.FrameLayout
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -78,6 +84,15 @@ class BotChatActivity : FragmentActivity() {
     private var noMoreOlder = false
     private var pendingAnchorId = 0L
     private var autoLoadArmed = false
+
+    // --- Avatar accanto ai messaggi altrui ---
+    // Cache delle immagini profilo già scaricate e ritagliate a cerchio (chiave: mittente).
+    private val avatarCache = HashMap<String, Bitmap>()
+    // Messaggio a cui associare l'avatar sulla sua prima riga; le righe successive dello
+    // stesso messaggio ricevono uno spazio equivalente per mantenere l'allineamento.
+    private var rowAvatarMsg: TdApi.Message? = null
+    private var rowAvatarUsed = true
+    private val AVATAR_SIZE = 56
 
     /**
      * Firma della lista messaggi usata per decidere se ridisegnare. Include, oltre a id e
@@ -346,6 +361,8 @@ class BotChatActivity : FragmentActivity() {
         for (m in msgs.reversed()) {
             val rowsBefore = messagesBox.childCount
             val mine = m.isOutgoing
+            // Avatar solo per i messaggi altrui, sulla prima riga del messaggio.
+            if (!mine) { rowAvatarMsg = m; rowAvatarUsed = false } else { rowAvatarMsg = null; rowAvatarUsed = true }
             val media = mediaOf(m)
             val text = if (media == null) messageText(m) else null
             val isSticker = m.content is TdApi.MessageSticker
@@ -932,9 +949,97 @@ class BotChatActivity : FragmentActivity() {
             ).also { it.topMargin = 4; it.bottomMargin = 4 }
         }
         fun spacer() = View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 0, 1f) }
-        if (mine) { row.addView(spacer()); row.addView(content) }
-        else { row.addView(content); row.addView(spacer()) }
+        if (mine) {
+            row.addView(spacer()); row.addView(content)
+        } else {
+            // Slot fisso a sinistra: contiene l'avatar sulla prima riga del messaggio,
+            // resta vuoto sulle successive così le nuvolette restano allineate.
+            val slot = FrameLayout(this).apply {
+                layoutParams = LinearLayout.LayoutParams(AVATAR_SIZE, AVATAR_SIZE)
+                    .also { it.rightMargin = 10 }
+            }
+            if (!rowAvatarUsed) {
+                rowAvatarUsed = true
+                slot.addView(makeAvatarView(rowAvatarMsg))
+            }
+            row.addView(slot)
+            row.addView(content)
+            row.addView(spacer())
+        }
         messagesBox.addView(row)
+    }
+
+    /** Miniatura circolare dell'immagine profilo del mittente del messaggio. */
+    private fun makeAvatarView(m: TdApi.Message?): ImageView {
+        val img = ImageView(this).apply {
+            layoutParams = FrameLayout.LayoutParams(AVATAR_SIZE, AVATAR_SIZE)
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            // Segnaposto: cerchio grigio finché non arriva la foto (o se non c'è).
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFF3A4A55.toInt())
+            }
+        }
+        if (m == null) return img
+
+        val key: String
+        var mini: ByteArray? = null
+        var file: TdApi.File? = null
+        when (val s = m.senderId) {
+            is TdApi.MessageSenderUser -> {
+                key = "u${s.userId}"
+                val u = TdClient.cachedUser(s.userId)
+                mini = u?.profilePhoto?.minithumbnail?.data
+                file = u?.profilePhoto?.small
+            }
+            is TdApi.MessageSenderChat -> {
+                key = "c${s.chatId}"
+                val ch = TdClient.findChat(s.chatId)
+                mini = ch?.photo?.minithumbnail?.data
+                file = ch?.photo?.small
+            }
+            else -> return img
+        }
+
+        avatarCache[key]?.let { img.setImageBitmap(it); return img }
+
+        // Mini-miniatura subito (sfocata ma istantanea), poi la versione vera.
+        mini?.let { d ->
+            runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                ?.let { img.setImageBitmap(circled(it)) }
+        }
+        val f = file ?: return img
+        if (f.local.isDownloadingCompleted && f.local.path.isNotEmpty()) {
+            runCatching { BitmapFactory.decodeFile(f.local.path) }.getOrNull()?.let {
+                val c = circled(it)
+                avatarCache[key] = c
+                img.setImageBitmap(c)
+            }
+        } else {
+            TdClient.downloadFilePath(f.id) { path ->
+                runOnUiThread {
+                    runCatching { BitmapFactory.decodeFile(path) }.getOrNull()?.let {
+                        val c = circled(it)
+                        avatarCache[key] = c
+                        img.setImageBitmap(c)
+                    }
+                }
+            }
+        }
+        return img
+    }
+
+    /** Ritaglia la bitmap a cerchio. */
+    private fun circled(src: Bitmap): Bitmap {
+        val size = minOf(src.width, src.height)
+        val out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(out)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = BitmapShader(src, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        val r = size / 2f
+        canvas.drawCircle(r, r, r, paint)
+        return out
     }
 
     private fun newRow(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
