@@ -317,6 +317,11 @@ object TdClient {
         client?.send(TdApi.OptimizeStorage()) { handler(it) }
     }
 
+    /** Recupera un singolo messaggio per id (usato per mostrare le citazioni delle risposte). */
+    fun getMessage(chatId: Long, messageId: Long, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetMessage(chatId, messageId)) { handler(it) }
+    }
+
     fun sendText(chatId: Long, text: String, forumTopicId: Int = 0, replyToMessageId: Long = 0L) {
         val topic: TdApi.MessageTopic? = if (forumTopicId != 0) TdApi.MessageTopicForum(forumTopicId) else null
         // Risposta a un messaggio specifico della stessa chat (citazione visibile a tutti).
