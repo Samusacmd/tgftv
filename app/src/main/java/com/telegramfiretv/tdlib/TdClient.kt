@@ -320,8 +320,9 @@ object TdClient {
     fun sendText(chatId: Long, text: String, forumTopicId: Int = 0, replyToMessageId: Long = 0L) {
         val topic: TdApi.MessageTopic? = if (forumTopicId != 0) TdApi.MessageTopicForum(forumTopicId) else null
         // Risposta a un messaggio specifico della stessa chat (citazione visibile a tutti).
+        // Firma a 4 argomenti della versione TDLib in uso: (messageId, quote, checklistTaskId, pollOptionId).
         val replyTo: TdApi.InputMessageReplyTo? =
-            if (replyToMessageId != 0L) TdApi.InputMessageReplyToMessage(replyToMessageId, null) else null
+            if (replyToMessageId != 0L) TdApi.InputMessageReplyToMessage(replyToMessageId, null, 0, null) else null
         val content = TdApi.InputMessageText(TdApi.FormattedText(text, emptyArray()), null, false)
         client?.send(TdApi.SendMessage(chatId, topic, replyTo, null, null, content)) {}
     }
