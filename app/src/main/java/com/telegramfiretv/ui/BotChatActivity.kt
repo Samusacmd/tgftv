@@ -94,6 +94,31 @@ class BotChatActivity : FragmentActivity() {
     private var rowAvatarUsed = true
     private val AVATAR_SIZE = 56
 
+    // --- Risposta a un messaggio ---
+    // Premendo OK su una bolla di testo altrui (o tenendo premuto su un media) si entra in
+    // modalità risposta: il prossimo invio parte come risposta Telegram a quel messaggio.
+    private var replyToMessageId = 0L
+    private lateinit var replyBar: TextView
+
+    /** Attiva la modalità risposta verso [m] (solo se la scrittura è abilitata nella chat). */
+    private fun setReplyTarget(m: TdApi.Message) {
+        if (inputRow.visibility != View.VISIBLE) {
+            Toast.makeText(this, "Scrittura non abilitata in questa chat", Toast.LENGTH_SHORT).show()
+            return
+        }
+        replyToMessageId = m.id
+        val who = senderLabel(m)
+        val excerpt = (messageText(m) ?: mediaOf(m)?.third ?: "")
+            .replace('\n', ' ').take(48)
+        replyBar.text = "↩  Risposta a $who: $excerpt   —  premi qui per annullare"
+        replyBar.visibility = View.VISIBLE
+    }
+
+    private fun clearReplyTarget() {
+        replyToMessageId = 0L
+        replyBar.visibility = View.GONE
+    }
+
     /**
      * Firma della lista messaggi usata per decidere se ridisegnare. Include, oltre a id e
      * numero, anche editDate e l'hash del testo di ogni messaggio: alcuni bot rispondono ai
@@ -183,6 +208,22 @@ class BotChatActivity : FragmentActivity() {
         }
         inputRow.addView(input, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
         inputRow.addView(makeButton("Invia") { sendInput() })
+        // Barra "risposta a…": compare sopra la casella quando si seleziona un messaggio.
+        replyBar = TextView(this).apply {
+            setTextColor(0xFF9FC6E8.toInt())
+            textSize = 14f
+            setPadding(24, 10, 24, 10)
+            setBackgroundColor(0xFF16222B.toInt())
+            visibility = View.GONE
+            isFocusable = true
+            setOnFocusChangeListener { v, has ->
+                v.setBackgroundColor(if (has) 0xFF24405A.toInt() else 0xFF16222B.toInt())
+            }
+            setOnClickListener { clearReplyTarget() }
+        }
+        root.addView(replyBar, LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+        ))
         root.addView(inputRow, LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
         ))
@@ -207,7 +248,8 @@ class BotChatActivity : FragmentActivity() {
     private fun sendInput() {
         val t = input.text.toString().trim()
         if (t.isEmpty()) return
-        TdClient.sendText(chatId, t, forumTopicId)
+        TdClient.sendText(chatId, t, forumTopicId, replyToMessageId)
+        clearReplyTarget()
         input.setText("")
         scheduleRefresh()
     }
@@ -376,11 +418,15 @@ class BotChatActivity : FragmentActivity() {
                 mediaRefs.add(media)
                 val photoContent = m.content as? TdApi.MessagePhoto
                 if (media.second == 2 && photoContent != null && Settings.showChatImages(this)) {
-                    // Foto: piccola anteprima nella chat invece della sola scritta.
-                    addPhotoPreview(photoContent, mine) { playMediaAt(mediaRefs.toList(), idx) }
+                    // Foto: piccola anteprima nella chat; OK apre, pressione prolungata risponde.
+                    addPhotoPreview(photoContent, mine,
+                        onClick = { playMediaAt(mediaRefs.toList(), idx) },
+                        onLongClick = { setReplyTarget(m) })
                 } else {
                     val icon = if (media.second == 2) "🖼" else "▶"
-                    addMessageBubble("$icon  ${media.third}", mine, true) { playMediaAt(mediaRefs.toList(), idx) }
+                    addMessageBubble("$icon  ${media.third}", mine, true,
+                        onClick = { playMediaAt(mediaRefs.toList(), idx) },
+                        onLongClick = { setReplyTarget(m) })
                 }
             } else if (isSticker) {
                 val sticker = (m.content as TdApi.MessageSticker).sticker
@@ -390,8 +436,14 @@ class BotChatActivity : FragmentActivity() {
                 val cmd = findCommand(t)
                 val link = findLink(t)
                 when {
-                    cmd != null -> addMessageBubble(t, mine, true) { TdClient.sendText(chatId, cmd); scheduleRefresh() }
-                    link != null -> addMessageBubble(t, mine, true) { openLink(link) }
+                    cmd != null -> addMessageBubble(t, mine, true,
+                        onClick = { TdClient.sendText(chatId, cmd); scheduleRefresh() },
+                        onLongClick = { setReplyTarget(m) })
+                    link != null -> addMessageBubble(t, mine, true,
+                        onClick = { openLink(link) },
+                        onLongClick = { setReplyTarget(m) })
+                    // Testo semplice altrui: OK = rispondi. I propri messaggi restano non selezionabili.
+                    !mine -> addMessageBubble(t, mine, true, onClick = { setReplyTarget(m) })
                     else -> addMessageBubble(t, mine, false, null)
                 }
             }
@@ -852,7 +904,7 @@ class BotChatActivity : FragmentActivity() {
      * Messaggio di chat in stile "nuvoletta": allineato a destra (azzurro) se inviato da me,
      * a sinistra (grigio-blu) se ricevuto — come su Telegram Desktop.
      */
-    private fun addMessageBubble(text: String, mine: Boolean, focusable: Boolean, onClick: (() -> Unit)? = null) {
+    private fun addMessageBubble(text: String, mine: Boolean, focusable: Boolean, onClick: (() -> Unit)? = null, onLongClick: (() -> Unit)? = null) {
         val tv = TextView(this).apply {
             this.text = text
             setTextColor(0xFFE6EDF2.toInt())
@@ -872,13 +924,14 @@ class BotChatActivity : FragmentActivity() {
             )
             addView(tv)
         }
-        if (focusable && onClick != null) {
+        if (focusable && (onClick != null || onLongClick != null)) {
             bubble.isFocusable = true
             bubble.setOnFocusChangeListener { v, has ->
                 (v.background as? GradientDrawable)
                     ?.setColor(if (has) 0xFF3E6FA8.toInt() else if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
             }
-            bubble.setOnClickListener { onClick() }
+            if (onClick != null) bubble.setOnClickListener { onClick() }
+            if (onLongClick != null) bubble.setOnLongClickListener { onLongClick(); true }
         }
         wrapInRow(bubble, mine)
     }
@@ -888,7 +941,7 @@ class BotChatActivity : FragmentActivity() {
      * messaggio (istantanea, nessun download), poi scarica la versione piccola e la
      * sostituisce. Cliccabile: apre la foto a schermo intero come prima.
      */
-    private fun addPhotoPreview(c: TdApi.MessagePhoto, mine: Boolean, onClick: () -> Unit) {
+    private fun addPhotoPreview(c: TdApi.MessagePhoto, mine: Boolean, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
         val img = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             layoutParams = LinearLayout.LayoutParams(320, 200)
@@ -922,6 +975,7 @@ class BotChatActivity : FragmentActivity() {
                     ?.setColor(if (has) 0xFF3E6FA8.toInt() else if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
             }
             setOnClickListener { onClick() }
+            if (onLongClick != null) setOnLongClickListener { onLongClick(); true }
         }
         wrapInRow(bubble, mine)
 
