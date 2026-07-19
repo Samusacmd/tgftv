@@ -12,6 +12,7 @@ import android.widget.FrameLayout
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.TextUtils
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -112,6 +113,13 @@ class BotChatActivity : FragmentActivity() {
             .replace('\n', ' ').take(48)
         replyBar.text = "↩  Risposta a $who: $excerpt   —  premi qui per annullare"
         replyBar.visibility = View.VISIBLE
+        // Porta subito il cursore sulla casella di scrittura e prova ad aprire la
+        // tastiera virtuale (dove il sistema lo consente).
+        input.requestFocus()
+        input.post {
+            val imm = getSystemService(INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager
+            imm?.showSoftInput(input, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+        }
     }
 
     private fun clearReplyTarget() {
@@ -413,6 +421,11 @@ class BotChatActivity : FragmentActivity() {
                 val sender = senderLabel(m)
                 if (sender != prevSender) { addSenderHeader(sender, mine); prevSender = sender }
             }
+            // Citazione: se questo messaggio è una risposta, mostra la nuvoletta col
+            // messaggio originario sopra il contenuto (come su Telegram).
+            (m.replyTo as? TdApi.MessageReplyToMessage)?.let { rt ->
+                if (rt.chatId == chatId || rt.chatId == 0L) addReplyQuote(rt, mine)
+            }
             if (media != null) {
                 val idx = mediaRefs.size
                 mediaRefs.add(media)
@@ -423,10 +436,19 @@ class BotChatActivity : FragmentActivity() {
                         onClick = { playMediaAt(mediaRefs.toList(), idx) },
                         onLongClick = { setReplyTarget(m) })
                 } else {
-                    val icon = if (media.second == 2) "🖼" else "▶"
-                    addMessageBubble("$icon  ${media.third}", mine, true,
-                        onClick = { playMediaAt(mediaRefs.toList(), idx) },
-                        onLongClick = { setReplyTarget(m) })
+                    val th = if (Settings.showChatImages(this)) mediaThumb(m) else null
+                    if (th != null) {
+                        // Media con miniatura (video, GIF, audio con copertina, documenti):
+                        // anteprima con ▶; OK riproduce a schermo intero, tenuto premuto risponde.
+                        addMediaPreview(media.third, th.first, th.second, mine,
+                            onClick = { playMediaAt(mediaRefs.toList(), idx) },
+                            onLongClick = { setReplyTarget(m) })
+                    } else {
+                        val icon = if (media.second == 2) "🖼" else "▶"
+                        addMessageBubble("$icon  ${media.third}", mine, true,
+                            onClick = { playMediaAt(mediaRefs.toList(), idx) },
+                            onLongClick = { setReplyTarget(m) })
+                    }
                 }
             } else if (isSticker) {
                 val sticker = (m.content as TdApi.MessageSticker).sticker
@@ -1094,6 +1116,184 @@ class BotChatActivity : FragmentActivity() {
         val r = size / 2f
         canvas.drawCircle(r, r, r, paint)
         return out
+    }
+
+    /**
+     * Miniature disponibili per il contenuto del messaggio: mini-miniatura istantanea
+     * (bytes) e file della miniatura vera da scaricare. Null se il contenuto non ne ha.
+     */
+    private fun mediaThumb(m: TdApi.Message): Pair<ByteArray?, TdApi.File?>? {
+        val pair: Pair<ByteArray?, TdApi.File?> = when (val c = m.content) {
+            is TdApi.MessageVideo -> c.video.minithumbnail?.data to c.video.thumbnail?.file
+            is TdApi.MessageAnimation -> c.animation.minithumbnail?.data to c.animation.thumbnail?.file
+            is TdApi.MessageVideoNote -> c.videoNote.minithumbnail?.data to c.videoNote.thumbnail?.file
+            is TdApi.MessageAudio -> c.audio.albumCoverMinithumbnail?.data to c.audio.albumCoverThumbnail?.file
+            is TdApi.MessageDocument -> c.document.minithumbnail?.data to c.document.thumbnail?.file
+            is TdApi.MessagePhoto -> c.photo.minithumbnail?.data to
+                c.photo.sizes.minByOrNull { it.width * it.height }?.photo
+            else -> return null
+        }
+        return if (pair.first == null && pair.second == null) null else pair
+    }
+
+    /**
+     * Nuvoletta-citazione del messaggio a cui [m] risponde: barra colorata, eventuale
+     * miniatura del media originale, mittente ed estratto. Se il messaggio originale è un
+     * media riproducibile, la citazione è selezionabile e OK lo riproduce a schermo intero.
+     */
+    private fun addReplyQuote(rt: TdApi.MessageReplyToMessage, mine: Boolean) {
+        val senderTv = TextView(this).apply {
+            setTextColor(0xFF6FB1E8.toInt())
+            textSize = 12f
+            text = "…"
+        }
+        val excerptTv = TextView(this).apply {
+            setTextColor(0xFFB8C4CC.toInt())
+            textSize = 13f
+            isSingleLine = true
+            ellipsize = TextUtils.TruncateAt.END
+            maxWidth = (chatContentMaxWidthPx() * 0.8).toInt()
+        }
+        val thumbView = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(44, 44).also { it.rightMargin = 10 }
+            visibility = View.GONE
+        }
+        val quote = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            background = GradientDrawable().apply {
+                cornerRadius = 14f
+                setColor(0xFF17242E.toInt())
+            }
+            setPadding(10, 8, 14, 8)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            // Barra verticale azzurra in stile Telegram.
+            addView(View(this@BotChatActivity).apply {
+                setBackgroundColor(0xFF6FB1E8.toInt())
+                layoutParams = LinearLayout.LayoutParams(5, LinearLayout.LayoutParams.MATCH_PARENT)
+                    .also { it.rightMargin = 10 }
+            })
+            addView(thumbView)
+            addView(LinearLayout(this@BotChatActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                addView(senderTv)
+                addView(excerptTv)
+            })
+        }
+        wrapInRow(quote, mine)
+
+        fun fill(orig: TdApi.Message) {
+            senderTv.text = senderLabel(orig)
+            val media = mediaOf(orig)
+            excerptTv.text = (messageText(orig) ?: media?.third ?: "").replace('\n', ' ')
+            mediaThumb(orig)?.first?.let { d ->
+                runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()?.let {
+                    thumbView.setImageBitmap(it)
+                    thumbView.visibility = View.VISIBLE
+                }
+            }
+            // Se l'originale è un media riproducibile: OK sulla citazione lo apre a schermo intero.
+            if (media != null) {
+                quote.isFocusable = true
+                quote.setOnFocusChangeListener { v, has ->
+                    (v.background as? GradientDrawable)
+                        ?.setColor(if (has) 0xFF2C4356.toInt() else 0xFF17242E.toInt())
+                }
+                quote.setOnClickListener { playMediaAt(listOf(media), 0) }
+            }
+        }
+
+        val orig = lastMessages.firstOrNull { it.id == rt.messageId }
+        if (orig != null) {
+            fill(orig)
+        } else {
+            // Non tra i messaggi caricati: lo recuperiamo da TDLib e completiamo la citazione.
+            TdClient.getMessage(chatId, rt.messageId) { obj ->
+                if (obj is TdApi.Message) runOnUiThread { fill(obj) }
+                else runOnUiThread { senderTv.text = "Messaggio"; excerptTv.text = "non disponibile" }
+            }
+        }
+    }
+
+    /**
+     * Anteprima con miniatura per i media (video, GIF, audio con copertina, documenti):
+     * immagine con simbolo ▶ sovrapposto e nome sotto. OK riproduce a schermo intero,
+     * pressione prolungata attiva la risposta.
+     */
+    private fun addMediaPreview(
+        label: String,
+        mini: ByteArray?,
+        thumbFile: TdApi.File?,
+        mine: Boolean,
+        onClick: () -> Unit,
+        onLongClick: (() -> Unit)? = null
+    ) {
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = FrameLayout.LayoutParams(320, 190)
+            mini?.let { d ->
+                runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                    ?.let { setImageBitmap(it) }
+            }
+        }
+        val frame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(320, 190)
+            addView(img)
+            // Simbolo play sovrapposto al centro.
+            addView(TextView(this@BotChatActivity).apply {
+                text = "▶"
+                textSize = 30f
+                setTextColor(0xFFFFFFFF.toInt())
+                setShadowLayer(8f, 0f, 0f, 0xFF000000.toInt())
+                layoutParams = FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.CENTER
+                )
+            })
+        }
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 26f
+                setColor(if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            setPadding(12, 12, 12, 12)
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+            addView(frame)
+            if (label.isNotBlank()) addView(TextView(this@BotChatActivity).apply {
+                text = label
+                setTextColor(0xFFE6EDF2.toInt())
+                textSize = 14f
+                maxWidth = 320
+                isSingleLine = true
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(4, 8, 4, 0)
+            })
+            isFocusable = true
+            setOnFocusChangeListener { v, has ->
+                (v.background as? GradientDrawable)
+                    ?.setColor(if (has) 0xFF3E6FA8.toInt() else if (mine) COLOR_BUBBLE_MINE else COLOR_BUBBLE_OTHER)
+            }
+            setOnClickListener { onClick() }
+            if (onLongClick != null) setOnLongClickListener { onLongClick(); true }
+        }
+        wrapInRow(bubble, mine)
+
+        // Scarica la miniatura vera e sostituisce la mini sfocata appena pronta.
+        val f = thumbFile ?: return
+        if (f.local.isDownloadingCompleted && f.local.path.isNotEmpty()) {
+            runCatching { BitmapFactory.decodeFile(f.local.path) }.getOrNull()?.let { img.setImageBitmap(it) }
+        } else {
+            TdClient.downloadFilePath(f.id) { path ->
+                runOnUiThread {
+                    runCatching { BitmapFactory.decodeFile(path) }.getOrNull()?.let { img.setImageBitmap(it) }
+                }
+            }
+        }
     }
 
     private fun newRow(): LinearLayout = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
