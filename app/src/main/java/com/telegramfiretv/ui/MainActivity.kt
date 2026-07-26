@@ -37,6 +37,38 @@ class MainActivity : FragmentActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(48, 24, 48, 12)
         }
+        // Vai in cima / vai in fondo all'elenco chat: utili con molte chat, per non dover
+        // scorrere manualmente tutta la lista. Solo qui (Chat/Archiviate), non nei file media.
+        val jumpTopBtn = Button(this).apply {
+            text = "\u25B2"
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            textSize = 16f
+            minWidth = 0
+            minimumWidth = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.rightMargin = 8 }
+            setPadding(20, 16, 20, 16)
+            setOnClickListener { jumpChatList(toTop = true) }
+        }
+        val jumpBottomBtn = Button(this).apply {
+            text = "\u25BC"
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            textSize = 16f
+            minWidth = 0
+            minimumWidth = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.rightMargin = 16 }
+            setPadding(20, 16, 20, 16)
+            setOnClickListener { jumpChatList(toTop = false) }
+        }
+        bar.addView(jumpTopBtn)
+        bar.addView(jumpBottomBtn)
         chatTab = tabButton("Chat")
         archiveTab = tabButton("Archiviate")
         val searchBtn = tabButton("Cerca")
@@ -107,6 +139,16 @@ class MainActivity : FragmentActivity() {
         currentList = list
         updateTabs()
         showFragment()
+    }
+
+    /** Sposta la selezione all'inizio o alla fine dell'elenco chat attualmente mostrato. */
+    private fun jumpChatList(toTop: Boolean) {
+        val grid = findViewById<View>(containerId)
+            ?.findViewById<androidx.leanback.widget.VerticalGridView>(androidx.leanback.R.id.browse_grid)
+            ?: return
+        val count = grid.adapter?.itemCount ?: return
+        if (count == 0) return
+        grid.selectedPosition = if (toTop) 0 else count - 1
     }
 
     private fun updateTabs() {
