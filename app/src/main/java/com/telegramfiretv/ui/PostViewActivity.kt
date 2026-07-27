@@ -439,4 +439,16 @@ class PostViewActivity : FragmentActivity() {
         TdClient.searchPublicChat(u) { obj ->
             runOnUiThread {
                 if (obj is TdApi.Chat) openChat(obj)
-                else Toast.makeText(this, "Non trovato: @$u", Toast.LEN
+                else Toast.makeText(this, "Non trovato: @$u", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun openChat(chat: TdApi.Chat) {
+        val intent = if (chat.type.constructor == TdApi.ChatTypePrivate.CONSTRUCTOR)
+            Intent(this, BotChatActivity::class.java)
+        else
+            Intent(this, MediaListActivity::class.java)
+        startActivity(intent.putExtra("chatId", chat.id).putExtra("title", chat.title))
+    }
+}
