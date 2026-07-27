@@ -145,6 +145,7 @@ class MediaListActivity : FragmentActivity() {
     private var forumTopicId = 0
     private var titleText: String? = null
     private var mode = "grid"
+    private var startAfterMessageId = 0L
 
     companion object {
         var cache: List<MediaEntry>? = null
@@ -163,6 +164,9 @@ class MediaListActivity : FragmentActivity() {
         forumTopicId = intent.getIntExtra("forumTopicId", 0)
         titleText = intent.getStringExtra("title")
         mode = intent.getStringExtra("mode") ?: "grid"
+        // Se presente, salta l'inizio del canale e mostra i file a partire da questo
+        // messaggio in avanti (es. dopo un "segnalibro" che segna l'inizio di una stagione).
+        startAfterMessageId = intent.getLongExtra("startAfterMessageId", 0L)
 
         val containerId = View.generateViewId()
         setContentView(FrameLayout(this).apply { id = containerId })
@@ -174,6 +178,7 @@ class MediaListActivity : FragmentActivity() {
                     putInt("forumTopicId", forumTopicId)
                     putString("title", titleText)
                     putString("mode", mode)
+                    putLong("startAfterMessageId", startAfterMessageId)
                 }
             }
             supportFragmentManager.beginTransaction().replace(containerId, f).commit()
@@ -214,6 +219,12 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     private var emptyRetries = 8
     private var writeOrb = false
 
+    // Modalità "da un segnalibro in poi": invece di partire dai messaggi più recenti e
+    // scorrere all'indietro, si parte da un messaggio preciso (es. lo sticker che segna
+    // l'inizio di una stagione) e si carica in avanti, verso i messaggi più nuovi.
+    private var startAfterMessageId = 0L
+    private var forwardCursor = 0L
+
     // Scroll infinito: carichiamo a blocchi invece che tutto insieme.
     private var loading = false          // un blocco è in corso: evita richieste sovrapposte
     private var reachedEnd = false       // il canale/topic è finito: niente altro da caricare
@@ -230,6 +241,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         grid = (arguments?.getString("mode") ?: "grid") == "grid"
         showAll = Settings.mediaFilter(requireContext()) == "all"
         title = arguments?.getString("title") ?: "Contenuti"
+        startAfterMessageId = arguments?.getLong("startAfterMessageId") ?: 0L
+        forwardCursor = startAfterMessageId
 
         val ctx = requireContext()
         val chat = TdClient.chats.firstOrNull { it.id == chatId }
@@ -352,6 +365,14 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         itemsAdapter = ArrayObjectAdapter(itemPresenter)
         adapter = itemsAdapter
 
+        if (startAfterMessageId != 0L) {
+            // Modalità "da un segnalibro in poi": la posizione di partenza cambia ogni volta,
+            // quindi non ha senso riusare/scrivere la cache pensata per la sfoglia normale.
+            title = "Carico…"
+            loadForwardBatch()
+            return
+        }
+
         val cached = MediaListActivity.cache
         if (forumTopicId == 0 && cached != null && MediaListActivity.cacheChatId == chatId && MediaListActivity.cacheShowAll == showAll) {
             collected.addAll(cached)
@@ -379,12 +400,69 @@ class MediaGridFragment : VerticalGridSupportFragment() {
 
     /** Se serve altro (non stiamo già caricando, non abbiamo finito, non al tetto), carica un blocco. */
     private fun loadMoreIfNeeded() {
-        if (!loading && !reachedEnd && collected.size < hardCap) loadBatch()
+        if (loading || reachedEnd || collected.size >= hardCap) return
+        if (startAfterMessageId != 0L) loadForwardBatch() else loadBatch()
+    }
+
+    /** Carica un blocco procedendo IN AVANTI da [forwardCursor] (dal segnalibro verso i più recenti). */
+    private fun loadForwardBatch() {
+        if (loading || reachedEnd) return
+        if (collected.size >= hardCap) { reachedEnd = true; return }
+        loading = true
+        loadForwardPage(pagesInBatch = 0)
+    }
+
+    private fun loadForwardPage(pagesInBatch: Int) {
+        val limit = 80
+        // Offset negativo = tecnica standard TDLib per ottenere i messaggi PIÙ NUOVI di
+        // fromMessageId invece che quelli più vecchi (che è il comportamento di default).
+        TdClient.getChatHistory(chatId, forwardCursor, limit, offset = -limit) { result ->
+            activity?.runOnUiThread {
+                if (result is TdApi.Error) {
+                    lastError = "err ${result.code}: ${result.message}"
+                    finishBatch(endReached = true)
+                    return@runOnUiThread
+                }
+                // TDLib restituisce sempre dal più recente al più vecchio: li rimettiamo in
+                // ordine cronologico e teniamo solo quelli davvero successivi al segnalibro.
+                val newer = (result as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+                    .filter { it.id > forwardCursor }.sortedBy { it.id }
+                if (newer.isEmpty()) {
+                    if (collected.isEmpty() && emptyRetries > 0) {
+                        emptyRetries--
+                        view?.postDelayed({ loadForwardPage(pagesInBatch) }, 600)
+                    } else {
+                        finishBatch(endReached = true)
+                    }
+                    return@runOnUiThread
+                }
+                scanned += newer.size
+                for (m in newer) {
+                    val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
+                    if (kb != null) {
+                        val label = postLabel(m)
+                        val th = mediaThumbOf(m)
+                        collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
+                    } else {
+                        extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
+                    }
+                    forwardCursor = m.id
+                }
+                pages++
+                val batchDone = pagesInBatch + 1 >= pagesPerBatch
+                val capReached = collected.size >= hardCap
+                when {
+                    capReached -> finishBatch(endReached = true)
+                    batchDone -> finishBatch(endReached = false)
+                    else -> loadForwardPage(pagesInBatch + 1)
+                }
+            }
+        }
     }
 
     private fun fetch(from: Long, handler: (TdApi.Object) -> Unit) {
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, from, 80, handler)
-        else TdClient.getChatHistory(chatId, from, 80, handler)
+        else TdClient.getChatHistory(chatId, from, 80, handler = handler)
     }
 
     private fun loadPage(from: Long, pagesInBatch: Int) {
@@ -454,7 +532,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         val suffix = if (reachedEnd) "" else "…"
         title = "${collected.size} contenuti$suffix"
 
-        if (forumTopicId == 0) {
+        if (forumTopicId == 0 && startAfterMessageId == 0L) {
             MediaListActivity.cache = collected.toList()
             MediaListActivity.cacheChatId = chatId
             MediaListActivity.cacheShowAll = showAll

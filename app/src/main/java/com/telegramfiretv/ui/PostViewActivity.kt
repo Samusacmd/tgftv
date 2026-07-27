@@ -118,13 +118,13 @@ class PostViewActivity : FragmentActivity() {
                     titleTv.text = "Messaggio non trovato ($why)"
                     return@runOnUiThread
                 }
-                render(obj, photo, textTv, buttonsBox, debugTv, requestedDebug)
+                render(obj, titleTv, photo, textTv, buttonsBox, debugTv, requestedDebug)
             }
         }
     }
 
     private fun render(
-        m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout,
+        m: TdApi.Message, titleTv2: TextView, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout,
         debugTv: TextView, requestedDebug: String
     ) {
         val c = m.content
@@ -139,6 +139,26 @@ class PostViewActivity : FragmentActivity() {
         }
         textTv.text = bodyText
         textTv.visibility = if (bodyText.isBlank()) View.GONE else View.VISIBLE
+
+        // Il segnalibro (sticker o altro) segna un punto nel canale: da qui si può continuare
+        // a sfogliare i file che vengono DOPO, fino alla prossima stagione/segnalibro.
+        buttonsBox.addView(Button(this).apply {
+            text = "📂  Vedi file da qui in poi"
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.bottomMargin = 16 }
+            setOnClickListener {
+                startActivity(
+                    Intent(this@PostViewActivity, MediaListActivity::class.java)
+                        .putExtra("chatId", m.chatId)
+                        .putExtra("startAfterMessageId", m.id)
+                        .putExtra("title", titleTv2.text?.toString() ?: "Contenuti")
+                )
+            }
+        })
 
         if (c is TdApi.MessagePhoto) {
             photo.visibility = View.VISIBLE
