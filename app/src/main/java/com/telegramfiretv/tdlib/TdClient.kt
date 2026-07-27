@@ -254,8 +254,8 @@ object TdClient {
 
     fun cachedUser(userId: Long): TdApi.User? = synchronized(users) { users[userId] }
 
-    fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, handler: (TdApi.Object) -> Unit) {
-        client?.send(TdApi.GetChatHistory(chatId, fromMessageId, 0, limit, false)) { handler(it) }
+    fun getChatHistory(chatId: Long, fromMessageId: Long, limit: Int, offset: Int = 0, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetChatHistory(chatId, fromMessageId, offset, limit, false)) { handler(it) }
     }
 
     fun getForumTopics(chatId: Long, handler: (TdApi.Object) -> Unit) {
