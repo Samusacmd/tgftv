@@ -108,7 +108,7 @@ class PostViewActivity : FragmentActivity() {
 
     private fun render(m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout) {
         val c = m.content
-        val text = when (c) {
+        val bodyText = when (c) {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessagePhoto -> c.caption.text
             is TdApi.MessageVideo -> c.caption.text
@@ -116,8 +116,8 @@ class PostViewActivity : FragmentActivity() {
             is TdApi.MessageAnimation -> c.caption.text
             else -> ""
         }
-        textTv.text = text
-        textTv.visibility = if (text.isBlank()) View.GONE else View.VISIBLE
+        textTv.text = bodyText
+        textTv.visibility = if (bodyText.isBlank()) View.GONE else View.VISIBLE
 
         if (c is TdApi.MessagePhoto) {
             photo.visibility = View.VISIBLE
