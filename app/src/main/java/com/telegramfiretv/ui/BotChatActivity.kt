@@ -622,7 +622,13 @@ class BotChatActivity : FragmentActivity() {
                                 else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
                             }
                         }
-                        else -> Toast.makeText(this, "Link non risolvibile: $raw", Toast.LENGTH_LONG).show()
+                        else -> {
+                            // Mostriamo il motivo esatto restituito da TDLib: senza vederlo
+                            // non possiamo capire perché il link non si apre (serve per la
+                            // prossima correzione mirata, invece di tentativi alla cieca).
+                            val why = (obj as? TdApi.Error)?.let { "${it.code}: ${it.message}" } ?: obj?.javaClass?.simpleName ?: "nessuna risposta"
+                            Toast.makeText(this, "Link non risolvibile ($why): $raw", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }

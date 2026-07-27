@@ -98,7 +98,8 @@ class PostViewActivity : FragmentActivity() {
         TdClient.getMessage(chatId, messageId) { obj ->
             runOnUiThread {
                 if (obj !is TdApi.Message) {
-                    titleTv.text = "Messaggio non trovato"
+                    val why = (obj as? TdApi.Error)?.let { "${it.code}: ${it.message}" } ?: "nessuna risposta"
+                    titleTv.text = "Messaggio non trovato ($why)"
                     return@runOnUiThread
                 }
                 render(obj, photo, textTv, buttonsBox)
@@ -215,7 +216,10 @@ class PostViewActivity : FragmentActivity() {
                                 else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
                             }
                         }
-                        else -> Toast.makeText(this, "Link non risolvibile: $raw", Toast.LENGTH_LONG).show()
+                        else -> {
+                            val why = (obj as? TdApi.Error)?.let { "${it.code}: ${it.message}" } ?: obj?.javaClass?.simpleName ?: "nessuna risposta"
+                            Toast.makeText(this, "Link non risolvibile ($why): $raw", Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
