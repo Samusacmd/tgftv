@@ -195,32 +195,27 @@ class PostViewActivity : FragmentActivity() {
         if (i > 0) link = link.substring(i)
         if (link.startsWith("t.me/")) link = "https://$link"
 
-        val cIdx = link.indexOf("t.me/c/")
-        if (cIdx >= 0) {
-            val rest = link.substring(cIdx + 7)
-            val parts = rest.split('/', '?')
-            val sg = parts.getOrNull(0)?.toLongOrNull()
-            val targetMsgId = parts.getOrNull(1)?.toLongOrNull()
-            if (sg != null) {
-                val realChatId = -(1_000_000_000_000L + sg)
-                if (targetMsgId != null) {
-                    // Naviga al post successivo nella stessa activity (menu concatenati).
-                    startActivity(
-                        Intent(this, PostViewActivity::class.java)
-                            .putExtra("chatId", realChatId)
-                            .putExtra("messageId", targetMsgId * 1_048_576L)
-                    )
-                } else {
-                    Toast.makeText(this, "Apro chat…", Toast.LENGTH_SHORT).show()
-                    TdClient.getChat(realChatId) { obj ->
-                        runOnUiThread {
-                            if (obj is TdApi.Chat) openChat(obj)
-                            else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
-                        }
+        if (link.contains("t.me/c/")) {
+            // Risoluzione ufficiale via TDLib: niente calcoli manuali sugli id (usati per
+            // navigare tra post-menu concatenati, es. dai pulsanti "St.01" ecc.).
+            Toast.makeText(this, "Apro…", Toast.LENGTH_SHORT).show()
+            TdClient.getMessageLinkInfo(link) { obj ->
+                runOnUiThread {
+                    val info = obj as? TdApi.MessageLinkInfo
+                    val msg = info?.message
+                    val chat = info?.chat
+                    when {
+                        msg != null -> startActivity(
+                            Intent(this, PostViewActivity::class.java)
+                                .putExtra("chatId", msg.chatId)
+                                .putExtra("messageId", msg.id)
+                        )
+                        chat != null -> openChat(chat)
+                        else -> Toast.makeText(this, "Link non risolvibile: $raw", Toast.LENGTH_LONG).show()
                     }
                 }
-                return
             }
+            return
         }
         if (link.contains("t.me/+") || link.contains("t.me/joinchat/")) {
             Toast.makeText(this, "Apro invito…", Toast.LENGTH_SHORT).show()

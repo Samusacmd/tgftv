@@ -601,33 +601,28 @@ class BotChatActivity : FragmentActivity() {
 
     private fun openLink(raw: String) {
         val link = normalizeLink(raw)
-        val cIdx = link.indexOf("t.me/c/")
-        if (cIdx >= 0) {
-            val rest = link.substring(cIdx + 7)
-            val parts = rest.split('/', '?')
-            val sg = parts.getOrNull(0)?.toLongOrNull()
-            val targetMsgId = parts.getOrNull(1)?.toLongOrNull()
-            if (sg != null) {
-                val realChatId = -(1_000_000_000_000L + sg)
-                if (targetMsgId != null) {
-                    // Link a un messaggio preciso (es. da un pulsante di un post con menu a
-                    // pulsanti): apre direttamente quel messaggio, con i suoi eventuali pulsanti.
-                    startActivity(
-                        Intent(this, PostViewActivity::class.java)
-                            .putExtra("chatId", realChatId)
-                            .putExtra("messageId", targetMsgId * 1_048_576L)
-                    )
-                    return
-                }
-                Toast.makeText(this, "Apro chat…", Toast.LENGTH_SHORT).show()
-                TdClient.getChat(realChatId) { obj ->
-                    runOnUiThread {
-                        if (obj is TdApi.Chat) openChat(obj)
-                        else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
+        if (link.contains("t.me/c/")) {
+            // Risoluzione ufficiale via TDLib: niente calcoli manuali sugli id, niente
+            // rischio di finire sul messaggio sbagliato (importante per i pulsanti dei
+            // post-menu, es. "St.01", che puntano a un messaggio preciso del canale).
+            Toast.makeText(this, "Apro…", Toast.LENGTH_SHORT).show()
+            TdClient.getMessageLinkInfo(link) { obj ->
+                runOnUiThread {
+                    val info = obj as? TdApi.MessageLinkInfo
+                    val msg = info?.message
+                    val chat = info?.chat
+                    when {
+                        msg != null -> startActivity(
+                            Intent(this, PostViewActivity::class.java)
+                                .putExtra("chatId", msg.chatId)
+                                .putExtra("messageId", msg.id)
+                        )
+                        chat != null -> openChat(chat)
+                        else -> Toast.makeText(this, "Link non risolvibile: $raw", Toast.LENGTH_LONG).show()
                     }
                 }
-                return
             }
+            return
         }
         if (link.contains("t.me/+") || link.contains("t.me/joinchat/")) {
             openInvite(link)
