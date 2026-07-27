@@ -610,14 +610,18 @@ class BotChatActivity : FragmentActivity() {
                 runOnUiThread {
                     val info = obj as? TdApi.MessageLinkInfo
                     val msg = info?.message
-                    val chat = info?.chat
                     when {
                         msg != null -> startActivity(
                             Intent(this, PostViewActivity::class.java)
                                 .putExtra("chatId", msg.chatId)
                                 .putExtra("messageId", msg.id)
                         )
-                        chat != null -> openChat(chat)
+                        info != null && info.chatId != 0L -> TdClient.getChat(info.chatId) { c ->
+                            runOnUiThread {
+                                if (c is TdApi.Chat) openChat(c)
+                                else Toast.makeText(this, "Chat non accessibile", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                         else -> Toast.makeText(this, "Link non risolvibile: $raw", Toast.LENGTH_LONG).show()
                     }
                 }
