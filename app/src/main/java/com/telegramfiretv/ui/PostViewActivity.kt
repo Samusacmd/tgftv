@@ -12,10 +12,14 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
+import com.airbnb.lottie.LottieAnimationView
+import com.airbnb.lottie.LottieCompositionFactory
 import com.telegramfiretv.R
 import com.telegramfiretv.player.PlayerActivity
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
+import java.io.File
+import java.util.zip.GZIPInputStream
 
 /**
  * Visualizza un singolo messaggio (tipicamente un post di canale con una tastiera a
@@ -188,6 +192,10 @@ class PostViewActivity : FragmentActivity() {
             }
         }
 
+        if (c is TdApi.MessageSticker) {
+            showSticker(c.sticker, buttonsBox)
+        }
+
         // Il "segnalibro" a cui puntano molti pulsanti (es. inizio di una stagione) è spesso
         // un video/audio/documento, non un altro post con pulsanti: riconosciamolo e offriamo
         // subito la riproduzione a schermo intero.
@@ -228,7 +236,7 @@ class PostViewActivity : FragmentActivity() {
 
         val markup = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
         if (markup == null) {
-            if (playable == null) {
+            if (playable == null && c !is TdApi.MessageSticker) {
                 buttonsBox.addView(TextView(this).apply {
                     text = "Questo messaggio non ha pulsanti né contenuti riproducibili."
                     setTextColor(0xFF8899A6.toInt())
@@ -246,6 +254,87 @@ class PostViewActivity : FragmentActivity() {
             }
             for (b in rowArr) row.addView(makeInlineButton(m.chatId, m.id, b))
             buttonsBox.addView(row)
+        }
+    }
+
+    /**
+     * Mostra lo sticker del messaggio (statico o animato): serve quando lo sticker STESSO
+     * è il "segnalibro" (es. un canale che segna l'inizio di una stagione con uno sticker
+     * dedicato) — prima la pagina non mostrava nulla in questo caso.
+     */
+    private fun showSticker(sticker: TdApi.Sticker, container: LinearLayout) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, 0, 0, 16)
+            layoutParams = LinearLayout.LayoutParams(240, 240)
+        }
+        container.addView(box, 0)
+
+        fun fallbackEmoji() {
+            box.removeAllViews()
+            box.addView(TextView(this).apply { text = sticker.emoji.ifEmpty { "🎭" }; textSize = 48f })
+        }
+
+        val fileId = sticker.sticker.id
+        val localPath = sticker.sticker.local.path
+        when (sticker.format) {
+            is TdApi.StickerFormatTgs -> {
+                val lav = LottieAnimationView(this).apply {
+                    layoutParams = LinearLayout.LayoutParams(240, 240)
+                    repeatCount = com.airbnb.lottie.LottieDrawable.INFINITE
+                }
+                box.addView(lav)
+
+                fun loadLottie(path: String) {
+                    Thread {
+                        val json: String? = try {
+                            GZIPInputStream(File(path).inputStream()).bufferedReader().use { it.readText() }
+                        } catch (e: Exception) { null }
+                        if (json == null) {
+                            runOnUiThread { if (!isFinishing && !isDestroyed) fallbackEmoji() }
+                            return@Thread
+                        }
+                        LottieCompositionFactory.fromJsonString(json, path)
+                            .addListener { comp ->
+                                runOnUiThread {
+                                    if (!isFinishing && !isDestroyed) { lav.setComposition(comp); lav.playAnimation() }
+                                }
+                            }
+                            .addFailureListener {
+                                runOnUiThread { if (!isFinishing && !isDestroyed) fallbackEmoji() }
+                            }
+                    }.start()
+                }
+
+                if (localPath.isNotEmpty() && File(localPath).exists()) {
+                    loadLottie(localPath)
+                } else {
+                    TdClient.downloadFilePath(fileId) { path ->
+                        if (path.isNotEmpty()) loadLottie(path)
+                    }
+                }
+            }
+            is TdApi.StickerFormatWebp -> {
+                val iv = ImageView(this).apply {
+                    scaleType = ImageView.ScaleType.FIT_CENTER
+                    layoutParams = LinearLayout.LayoutParams(240, 240)
+                }
+                box.addView(iv)
+
+                fun showStatic(path: String) {
+                    val bmp = try { BitmapFactory.decodeFile(path) } catch (e: Exception) { null }
+                    if (bmp != null) iv.setImageBitmap(bmp) else fallbackEmoji()
+                }
+
+                if (localPath.isNotEmpty() && File(localPath).exists()) {
+                    showStatic(localPath)
+                } else {
+                    TdClient.downloadFilePath(fileId) { path ->
+                        if (path.isNotEmpty()) runOnUiThread { if (!isFinishing && !isDestroyed) showStatic(path) }
+                    }
+                }
+            }
+            else -> fallbackEmoji() // Sticker video (Webm): emoji come segnaposto.
         }
     }
 
@@ -350,16 +439,4 @@ class PostViewActivity : FragmentActivity() {
         TdClient.searchPublicChat(u) { obj ->
             runOnUiThread {
                 if (obj is TdApi.Chat) openChat(obj)
-                else Toast.makeText(this, "Non trovato: @$u", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun openChat(chat: TdApi.Chat) {
-        val intent = if (chat.type.constructor == TdApi.ChatTypePrivate.CONSTRUCTOR)
-            Intent(this, BotChatActivity::class.java)
-        else
-            Intent(this, MediaListActivity::class.java)
-        startActivity(intent.putExtra("chatId", chat.id).putExtra("title", chat.title))
-    }
-}
+                else Toast.makeText(this, "Non trovato: @$u", Toast.LEN
