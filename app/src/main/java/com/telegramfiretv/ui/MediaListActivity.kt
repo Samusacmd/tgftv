@@ -41,9 +41,38 @@ data class MediaEntry(
     val mini: ByteArray?,
     val thumbFile: TdApi.File?,
     // Chiave per il flag "già visto": id univoco remoto del file, la stessa chiave che il
-    // player usa per posizioni e visti. Vuota per i tipi non tracciati (foto).
-    val watchKey: String = ""
+    // player usa per posizioni e visti. Vuota per i tipi non tracciati (foto, post).
+    val watchKey: String = "",
+    // Id del messaggio TDLib: usato solo per le voci di tipo "Post" (apre PostViewActivity).
+    val messageId: Long = 0L
 )
+
+/** Etichetta breve per una voce "Post": usa il testo/didascalia se c'è, altrimenti un segnaposto. */
+private fun postLabel(m: TdApi.Message): String {
+    val t = when (val c = m.content) {
+        is TdApi.MessageText -> c.text.text
+        is TdApi.MessagePhoto -> c.caption.text
+        is TdApi.MessageVideo -> c.caption.text
+        is TdApi.MessageDocument -> c.caption.text
+        is TdApi.MessageAnimation -> c.caption.text
+        else -> ""
+    }
+    val firstLine = t.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+    return firstLine.ifBlank { "📋 Post con pulsanti" }
+}
+
+/** Mini-miniatura e file miniatura del messaggio, se disponibili (per l'anteprima del Post). */
+private fun mediaThumbOf(m: TdApi.Message): Pair<ByteArray?, TdApi.File?>? {
+    val pair: Pair<ByteArray?, TdApi.File?> = when (val c = m.content) {
+        is TdApi.MessagePhoto -> c.photo.minithumbnail?.data to
+            c.photo.sizes.minByOrNull { it.width * it.height }?.photo
+        is TdApi.MessageVideo -> c.video.minithumbnail?.data to c.video.thumbnail?.file
+        is TdApi.MessageAnimation -> c.animation.minithumbnail?.data to c.animation.thumbnail?.file
+        is TdApi.MessageDocument -> c.document.minithumbnail?.data to c.document.thumbnail?.file
+        else -> return null
+    }
+    return if (pair.first == null && pair.second == null) null else pair
+}
 
 /** Stessa chiave usata dal player (keyFor): id remoto stabile, con ripiego sull'id locale. */
 private fun watchKeyOf(f: TdApi.File): String = f.remote.uniqueId.ifEmpty { "fid_${f.id}" }
@@ -236,6 +265,14 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         .putExtra("mode", if (grid) "grid" else "list")
                 )
                 is MediaEntry -> {
+                    if (item.type == "Post") {
+                        startActivity(
+                            Intent(requireContext(), PostViewActivity::class.java)
+                                .putExtra("chatId", chatId)
+                                .putExtra("messageId", item.messageId)
+                        )
+                        return@setOnItemViewClickedListener
+                    }
                     val ids = collected.map { it.fileId }.toIntArray()
                     val labs = collected.map { it.title }.toTypedArray()
                     val kinds = collected.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
@@ -372,7 +409,17 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 }
                 scanned += msgs.size
                 for (m in msgs) {
-                    extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
+                    val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
+                    if (kb != null) {
+                        // Post con tastiera a pulsanti (es. menu con elenco stagioni/episodi):
+                        // lo trattiamo come voce a sé, apribile per usare i pulsanti, invece
+                        // di estrarne il solo media (che da solo perderebbe i pulsanti).
+                        val label = postLabel(m)
+                        val th = mediaThumbOf(m)
+                        collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
+                    } else {
+                        extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
+                    }
                     oldest = m.id
                 }
                 pages++

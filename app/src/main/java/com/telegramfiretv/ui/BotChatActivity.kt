@@ -603,9 +603,22 @@ class BotChatActivity : FragmentActivity() {
         val link = normalizeLink(raw)
         val cIdx = link.indexOf("t.me/c/")
         if (cIdx >= 0) {
-            val sg = link.substring(cIdx + 7).takeWhile { it.isDigit() }.toLongOrNull()
+            val rest = link.substring(cIdx + 7)
+            val parts = rest.split('/', '?')
+            val sg = parts.getOrNull(0)?.toLongOrNull()
+            val targetMsgId = parts.getOrNull(1)?.toLongOrNull()
             if (sg != null) {
                 val realChatId = -(1_000_000_000_000L + sg)
+                if (targetMsgId != null) {
+                    // Link a un messaggio preciso (es. da un pulsante di un post con menu a
+                    // pulsanti): apre direttamente quel messaggio, con i suoi eventuali pulsanti.
+                    startActivity(
+                        Intent(this, PostViewActivity::class.java)
+                            .putExtra("chatId", realChatId)
+                            .putExtra("messageId", targetMsgId * 1_048_576L)
+                    )
+                    return
+                }
                 Toast.makeText(this, "Apro chat…", Toast.LENGTH_SHORT).show()
                 TdClient.getChat(realChatId) { obj ->
                     runOnUiThread {
