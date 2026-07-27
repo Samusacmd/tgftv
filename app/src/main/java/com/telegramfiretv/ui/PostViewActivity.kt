@@ -13,6 +13,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.R
+import com.telegramfiretv.player.PlayerActivity
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
 
@@ -99,7 +100,8 @@ class PostViewActivity : FragmentActivity() {
             titleTv.text = "Messaggio non disponibile"
             return
         }
-        debugTv.text = "richiesto: chatId=$chatId  messageId=$messageId"
+        val requestedDebug = "richiesto: chatId=$chatId  messageId=$messageId"
+        debugTv.text = requestedDebug
 
         TdClient.getChat(chatId) { c ->
             runOnUiThread { if (c is TdApi.Chat) titleTv.text = c.title }
@@ -112,14 +114,17 @@ class PostViewActivity : FragmentActivity() {
                     titleTv.text = "Messaggio non trovato ($why)"
                     return@runOnUiThread
                 }
-                render(obj, photo, textTv, buttonsBox, debugTv)
+                render(obj, photo, textTv, buttonsBox, debugTv, requestedDebug)
             }
         }
     }
 
-    private fun render(m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout, debugTv: TextView) {
+    private fun render(
+        m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout,
+        debugTv: TextView, requestedDebug: String
+    ) {
         val c = m.content
-        debugTv.text = "id=${m.id}  chatId=${m.chatId}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
+        debugTv.text = "$requestedDebug\nottenuto: id=${m.id}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
         val bodyText = when (c) {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessagePhoto -> c.caption.text
@@ -151,15 +156,85 @@ class PostViewActivity : FragmentActivity() {
                     }
                 }
             }
+        } else {
+            // Miniatura per video/GIF/videomessaggi: stessa logica della foto.
+            val thumbPair: Pair<ByteArray?, TdApi.File?>? = when (c) {
+                is TdApi.MessageVideo -> c.video.minithumbnail?.data to c.video.thumbnail?.file
+                is TdApi.MessageAnimation -> c.animation.minithumbnail?.data to c.animation.thumbnail?.file
+                is TdApi.MessageVideoNote -> c.videoNote.minithumbnail?.data to c.videoNote.thumbnail?.file
+                is TdApi.MessageDocument -> c.document.minithumbnail?.data to c.document.thumbnail?.file
+                else -> null
+            }
+            if (thumbPair != null) {
+                photo.visibility = View.VISIBLE
+                thumbPair.first?.let { d ->
+                    runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                        ?.let { photo.setImageBitmap(it) }
+                }
+                val f = thumbPair.second
+                if (f != null) {
+                    if (f.local.isDownloadingCompleted && f.local.path.isNotEmpty()) {
+                        runCatching { BitmapFactory.decodeFile(f.local.path) }.getOrNull()
+                            ?.let { photo.setImageBitmap(it) }
+                    } else {
+                        TdClient.downloadFilePath(f.id) { path ->
+                            runOnUiThread {
+                                runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                                    ?.let { photo.setImageBitmap(it) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Il "segnalibro" a cui puntano molti pulsanti (es. inizio di una stagione) è spesso
+        // un video/audio/documento, non un altro post con pulsanti: riconosciamolo e offriamo
+        // subito la riproduzione a schermo intero.
+        val playable: Triple<Int, Int, String>? = when (c) {
+            is TdApi.MessageVideo -> Triple(c.video.video.id, 0, c.video.fileName.ifEmpty { "Video" })
+            is TdApi.MessageAnimation -> Triple(c.animation.animation.id, 0, c.animation.fileName.ifEmpty { "GIF" })
+            is TdApi.MessageVideoNote -> Triple(c.videoNote.video.id, 0, "Video messaggio")
+            is TdApi.MessageAudio -> Triple(c.audio.audio.id, 1, c.audio.fileName.ifEmpty { "Audio" })
+            is TdApi.MessageVoiceNote -> Triple(c.voiceNote.voice.id, 1, "Messaggio vocale")
+            is TdApi.MessageDocument -> {
+                val mime = c.document.mimeType
+                if (mime.startsWith("video/") || mime.startsWith("audio/"))
+                    Triple(c.document.document.id, if (mime.startsWith("audio/")) 1 else 0, c.document.fileName)
+                else null
+            }
+            else -> null
+        }
+        if (playable != null) {
+            buttonsBox.addView(Button(this).apply {
+                text = "▶  Riproduci: ${playable.third}"
+                setBackgroundResource(R.drawable.bg_button)
+                setTextColor(0xFFFFFFFF.toInt())
+                isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.bottomMargin = 16 }
+                setOnClickListener {
+                    startActivity(
+                        Intent(this@PostViewActivity, PlayerActivity::class.java)
+                            .putExtra(PlayerActivity.EXTRA_FILE_IDS, intArrayOf(playable.first))
+                            .putExtra(PlayerActivity.EXTRA_LABELS, arrayOf(playable.third))
+                            .putExtra(PlayerActivity.EXTRA_KINDS, intArrayOf(playable.second))
+                            .putExtra(PlayerActivity.EXTRA_INDEX, 0)
+                    )
+                }
+            })
         }
 
         val markup = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
         if (markup == null) {
-            buttonsBox.addView(TextView(this).apply {
-                text = "Questo messaggio non ha pulsanti."
-                setTextColor(0xFF8899A6.toInt())
-                textSize = 14f
-            })
+            if (playable == null) {
+                buttonsBox.addView(TextView(this).apply {
+                    text = "Questo messaggio non ha pulsanti né contenuti riproducibili."
+                    setTextColor(0xFF8899A6.toInt())
+                    textSize = 14f
+                })
+            }
             return
         }
         for (rowArr in markup.rows) {
