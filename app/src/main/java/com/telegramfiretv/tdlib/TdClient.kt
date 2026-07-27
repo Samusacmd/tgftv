@@ -322,6 +322,15 @@ object TdClient {
         client?.send(TdApi.GetMessage(chatId, messageId)) { handler(it) }
     }
 
+    /**
+     * Risolve UFFICIALMENTE un link t.me (es. t.me/c/<id>/<messageId>) in chat e messaggio
+     * esatti, usando la logica di TDLib stessa invece di calcoli manuali sugli id — più
+     * affidabile per i link presi dai pulsanti dei post (menu con episodi/stagioni ecc.).
+     */
+    fun getMessageLinkInfo(url: String, handler: (TdApi.Object) -> Unit) {
+        client?.send(TdApi.GetMessageLinkInfo(url)) { handler(it) }
+    }
+
     fun sendText(chatId: Long, text: String, forumTopicId: Int = 0, replyToMessageId: Long = 0L) {
         val topic: TdApi.MessageTopic? = if (forumTopicId != 0) TdApi.MessageTopicForum(forumTopicId) else null
         // Risposta a un messaggio specifico della stessa chat (citazione visibile a tutti).
