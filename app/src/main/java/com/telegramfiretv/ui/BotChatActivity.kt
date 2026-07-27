@@ -314,7 +314,7 @@ class BotChatActivity : FragmentActivity() {
             }
         }
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, 0L, 25, cb)
-        else TdClient.getChatHistory(chatId, 0L, 25, cb)
+        else TdClient.getChatHistory(chatId, 0L, 25, handler = cb)
     }
 
     /** Fonde i nuovi messaggi (più recenti) con quelli già caricati e rimuove quelli cancellati
@@ -356,7 +356,7 @@ class BotChatActivity : FragmentActivity() {
             }
         }
         if (forumTopicId != 0) TdClient.getForumTopicHistory(chatId, forumTopicId, oldestId, 25, cb)
-        else TdClient.getChatHistory(chatId, oldestId, 25, cb)
+        else TdClient.getChatHistory(chatId, oldestId, 25, handler = cb)
     }
 
     /** Porta il focus (o lo scroll) sulle righe del messaggio indicato. */
