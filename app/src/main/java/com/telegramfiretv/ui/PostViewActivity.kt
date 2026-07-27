@@ -51,6 +51,15 @@ class PostViewActivity : FragmentActivity() {
         }
         root.addView(titleTv)
 
+        // Riga diagnostica temporanea: mostra l'id del messaggio ottenuto e il tipo di
+        // contenuto, per verificare se il link porta davvero al messaggio giusto.
+        val debugTv = TextView(this).apply {
+            setTextColor(0xFF8899A6.toInt())
+            textSize = 12f
+            setPadding(0, 0, 0, 16)
+        }
+        root.addView(debugTv)
+
         val photo = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
@@ -90,6 +99,7 @@ class PostViewActivity : FragmentActivity() {
             titleTv.text = "Messaggio non disponibile"
             return
         }
+        debugTv.text = "richiesto: chatId=$chatId  messageId=$messageId"
 
         TdClient.getChat(chatId) { c ->
             runOnUiThread { if (c is TdApi.Chat) titleTv.text = c.title }
@@ -102,13 +112,14 @@ class PostViewActivity : FragmentActivity() {
                     titleTv.text = "Messaggio non trovato ($why)"
                     return@runOnUiThread
                 }
-                render(obj, photo, textTv, buttonsBox)
+                render(obj, photo, textTv, buttonsBox, debugTv)
             }
         }
     }
 
-    private fun render(m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout) {
+    private fun render(m: TdApi.Message, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout, debugTv: TextView) {
         val c = m.content
+        debugTv.text = "id=${m.id}  chatId=${m.chatId}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
         val bodyText = when (c) {
             is TdApi.MessageText -> c.text.text
             is TdApi.MessagePhoto -> c.caption.text
