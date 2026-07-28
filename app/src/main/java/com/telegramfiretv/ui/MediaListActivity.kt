@@ -74,6 +74,20 @@ private fun mediaThumbOf(m: TdApi.Message): Pair<ByteArray?, TdApi.File?>? {
     return if (pair.first == null && pair.second == null) null else pair
 }
 
+/**
+ * Voce "Segnalibro" per uno sticker usato come divisore tra una serie/stagione e l'altra:
+ * mostra l'emoji dello sticker come titolo e, se lo sticker è statico (WEBP), anche la sua
+ * immagine come anteprima (i formati animati non sono decodificabili come miniatura fissa,
+ * in quel caso resta solo l'etichetta). Non è pensata per essere aperta: è un indicatore
+ * visivo del punto in cui inizia una nuova sezione, inserito nella normale sfoglia del canale.
+ */
+private fun bookmarkEntry(m: TdApi.Message): MediaEntry {
+    val sticker = (m.content as TdApi.MessageSticker).sticker
+    val label = "🔖 Segnalibro" + if (sticker.emoji.isNotBlank()) "  ${sticker.emoji}" else ""
+    val thumbFile = if (sticker.format is TdApi.StickerFormatWebp) sticker.sticker else null
+    return MediaEntry(0, label, "Segnalibro", 0, null, thumbFile, "", m.id)
+}
+
 /** Stessa chiave usata dal player (keyFor): id remoto stabile, con ripiego sull'id locale. */
 private fun watchKeyOf(f: TdApi.File): String = f.remote.uniqueId.ifEmpty { "fid_${f.id}" }
 
@@ -286,6 +300,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         )
                         return@setOnItemViewClickedListener
                     }
+                    if (item.type == "Segnalibro") {
+                        // Solo un indicatore visivo: non c'è nulla da riprodurre o aprire.
+                        Toast.makeText(requireContext(), "Segnalibro — indica l'inizio di una nuova sezione", Toast.LENGTH_SHORT).show()
+                        return@setOnItemViewClickedListener
+                    }
                     val ids = collected.map { it.fileId }.toIntArray()
                     val labs = collected.map { it.title }.toTypedArray()
                     val kinds = collected.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
@@ -439,7 +458,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 scanned += newer.size
                 for (m in newer) {
                     val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
-                    if (kb != null) {
+                    if (m.content is TdApi.MessageSticker) {
+                        // Sticker usato come "segnalibro" (es. inizio di una stagione): lo
+                        // mostriamo come voce a parte nell'elenco, senza bisogno di aprirlo.
+                        collected.add(bookmarkEntry(m))
+                    } else if (kb != null) {
                         val label = postLabel(m)
                         val th = mediaThumbOf(m)
                         collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
@@ -488,7 +511,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 scanned += msgs.size
                 for (m in msgs) {
                     val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
-                    if (kb != null) {
+                    if (m.content is TdApi.MessageSticker) {
+                        // Sticker usato come "segnalibro" (es. inizio di una stagione): lo
+                        // mostriamo come voce a parte nell'elenco, senza bisogno di aprirlo.
+                        collected.add(bookmarkEntry(m))
+                    } else if (kb != null) {
                         // Post con tastiera a pulsanti (es. menu con elenco stagioni/episodi):
                         // lo trattiamo come voce a sé, apribile per usare i pulsanti, invece
                         // di estrarne il solo media (che da solo perderebbe i pulsanti).
@@ -640,8 +667,14 @@ class GridMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
         card.titleText = e.title
         val seen = e.watchKey.isNotEmpty() && Settings.isWatched(card.context, e.watchKey)
         card.foreground = if (seen) vh.star else null
-        val dur = formatDuration(e.durationSec)
-        card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
+        if (e.type == "Segnalibro") {
+            // Sfondo distinto per riconoscere subito il divisore tra una sezione e l'altra.
+            card.setInfoAreaBackgroundColor(0xFF3D2B12.toInt())
+            card.contentText = "Inizio nuova sezione"
+        } else {
+            val dur = formatDuration(e.durationSec)
+            card.contentText = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
+        }
         card.findViewById<TextView>(androidx.leanback.R.id.title_text)?.apply {
             isSingleLine = true
             ellipsize = TextUtils.TruncateAt.MARQUEE
@@ -693,9 +726,15 @@ class ListMediaPresenter(private val thumbs: ThumbLoader) : Presenter() {
         v.findViewById<TextView>(R.id.title).apply { text = e.title; isSelected = true }
         vh.star.visibility =
             if (e.watchKey.isNotEmpty() && Settings.isWatched(v.context, e.watchKey)) View.VISIBLE else View.GONE
-        val dur = formatDuration(e.durationSec)
-        v.findViewById<TextView>(R.id.subtitle).text =
-            if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
+        val subtitle = v.findViewById<TextView>(R.id.subtitle)
+        if (e.type == "Segnalibro") {
+            subtitle.text = "Inizio nuova sezione"
+            v.setBackgroundColor(0xFF2A1D0E.toInt())
+        } else {
+            val dur = formatDuration(e.durationSec)
+            subtitle.text = if (dur.isNotEmpty()) "${e.type} - $dur" else e.type
+            v.setBackgroundColor(0x00000000)
+        }
         thumbs.loadImage(v.findViewById(R.id.thumb), e.thumbFile, e.mini)
     }
 
