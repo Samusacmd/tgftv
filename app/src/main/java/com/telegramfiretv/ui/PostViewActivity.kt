@@ -129,12 +129,24 @@ class PostViewActivity : FragmentActivity() {
     ) {
         val c = m.content
         debugTv.text = "$requestedDebug\nottenuto: id=${m.id}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
-        val bodyText = when (c) {
-            is TdApi.MessageText -> c.text.text
-            is TdApi.MessagePhoto -> c.caption.text
-            is TdApi.MessageVideo -> c.caption.text
-            is TdApi.MessageDocument -> c.caption.text
-            is TdApi.MessageAnimation -> c.caption.text
+        val linkPreview = (c as? TdApi.MessageText)?.linkPreview
+        val bodyText = when {
+            linkPreview != null -> {
+                // Molti post "locandina" sono in realtà un messaggio con un link il cui
+                // testo è quasi vuoto: il vero contenuto (titolo, trama) sta nell'anteprima
+                // del link generata da Telegram, non nel testo del messaggio.
+                val parts = listOfNotNull(
+                    linkPreview.title.ifBlank { null },
+                    linkPreview.description.text.ifBlank { null }
+                )
+                val ownText = (c as TdApi.MessageText).text.text
+                (parts.joinToString("\n\n").ifBlank { ownText })
+            }
+            c is TdApi.MessageText -> c.text.text
+            c is TdApi.MessagePhoto -> c.caption.text
+            c is TdApi.MessageVideo -> c.caption.text
+            c is TdApi.MessageDocument -> c.caption.text
+            c is TdApi.MessageAnimation -> c.caption.text
             else -> ""
         }
         textTv.text = bodyText
@@ -160,7 +172,34 @@ class PostViewActivity : FragmentActivity() {
             }
         })
 
-        if (c is TdApi.MessagePhoto) {
+        if (linkPreview != null) {
+            // Locandina di un'anteprima link (es. pagina di una serie TV): l'immagine sta
+            // dentro il tipo dell'anteprima, non nel messaggio come foto vera e propria.
+            val previewPhoto: TdApi.Photo? = when (val t = linkPreview.type) {
+                is TdApi.LinkPreviewTypePhoto -> t.photo
+                is TdApi.LinkPreviewTypeArticle -> t.photo
+                else -> null
+            }
+            val big = previewPhoto?.sizes?.maxByOrNull { it.width * it.height }?.photo
+            if (big != null) {
+                photo.visibility = View.VISIBLE
+                previewPhoto.minithumbnail?.data?.let { d ->
+                    runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                        ?.let { photo.setImageBitmap(it) }
+                }
+                if (big.local.isDownloadingCompleted && big.local.path.isNotEmpty()) {
+                    runCatching { BitmapFactory.decodeFile(big.local.path) }.getOrNull()
+                        ?.let { photo.setImageBitmap(it) }
+                } else {
+                    TdClient.downloadFilePath(big.id) { path ->
+                        runOnUiThread {
+                            runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                                ?.let { photo.setImageBitmap(it) }
+                        }
+                    }
+                }
+            }
+        } else if (c is TdApi.MessagePhoto) {
             photo.visibility = View.VISIBLE
             c.photo.minithumbnail?.data?.let { d ->
                 runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
