@@ -118,14 +118,29 @@ class PostViewActivity : FragmentActivity() {
                     titleTv.text = "Messaggio non trovato ($why)"
                     return@runOnUiThread
                 }
-                render(obj, titleTv, photo, textTv, buttonsBox, debugTv, requestedDebug)
+                // Su Telegram due messaggi consecutivi dello stesso canale (foto-locandina
+                // seguita subito da uno sticker/testo con i pulsanti) appaiono visivamente
+                // come un unico post. Recuperiamo quindi anche il messaggio immediatamente
+                // precedente: se è una foto senza pulsanti propri, la usiamo come locandina.
+                TdClient.getChatHistory(chatId, obj.id, 1) { prevResult ->
+                    runOnUiThread {
+                        val prevMsgs = (prevResult as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+                        val prevCandidate = prevMsgs.firstOrNull()
+                        val posterMsg = if (
+                            prevCandidate != null &&
+                            prevCandidate.content is TdApi.MessagePhoto &&
+                            prevCandidate.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
+                        ) prevCandidate else null
+                        render(obj, posterMsg, titleTv, photo, textTv, buttonsBox, debugTv, requestedDebug)
+                    }
+                }
             }
         }
     }
 
     private fun render(
-        m: TdApi.Message, titleTv2: TextView, photo: ImageView, textTv: TextView, buttonsBox: LinearLayout,
-        debugTv: TextView, requestedDebug: String
+        m: TdApi.Message, posterMsg: TdApi.Message?, titleTv2: TextView, photo: ImageView, textTv: TextView,
+        buttonsBox: LinearLayout, debugTv: TextView, requestedDebug: String
     ) {
         val c = m.content
         debugTv.text = "$requestedDebug\nottenuto: id=${m.id}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
@@ -149,8 +164,11 @@ class PostViewActivity : FragmentActivity() {
             c is TdApi.MessageAnimation -> c.caption.text
             else -> ""
         }
-        textTv.text = bodyText
-        textTv.visibility = if (bodyText.isBlank()) View.GONE else View.VISIBLE
+        // Se il messaggio corrente non ha testo proprio (es. è uno sticker), usiamo la
+        // didascalia del messaggio-locandina appena trovato, se c'è.
+        val finalBodyText = bodyText.ifBlank { (posterMsg?.content as? TdApi.MessagePhoto)?.caption?.text ?: "" }
+        textTv.text = finalBodyText
+        textTv.visibility = if (finalBodyText.isBlank()) View.GONE else View.VISIBLE
 
         // Il segnalibro (sticker o altro) segna un punto nel canale: da qui si può continuare
         // a sfogliare i file che vengono DOPO, fino alla prossima stagione/segnalibro.
@@ -241,6 +259,29 @@ class PostViewActivity : FragmentActivity() {
                             ?.let { photo.setImageBitmap(it) }
                     } else {
                         TdClient.downloadFilePath(f.id) { path ->
+                            runOnUiThread {
+                                runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                                    ?.let { photo.setImageBitmap(it) }
+                            }
+                        }
+                    }
+                }
+            } else if (posterMsg != null) {
+                // Il messaggio corrente non ha nessuna immagine propria (es. è uno sticker):
+                // mostriamo la foto del messaggio-locandina appena trovato, se c'è.
+                val pc = posterMsg.content as? TdApi.MessagePhoto
+                val big = pc?.photo?.sizes?.maxByOrNull { it.width * it.height }?.photo
+                if (big != null) {
+                    photo.visibility = View.VISIBLE
+                    pc.photo.minithumbnail?.data?.let { d ->
+                        runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                            ?.let { photo.setImageBitmap(it) }
+                    }
+                    if (big.local.isDownloadingCompleted && big.local.path.isNotEmpty()) {
+                        runCatching { BitmapFactory.decodeFile(big.local.path) }.getOrNull()
+                            ?.let { photo.setImageBitmap(it) }
+                    } else {
+                        TdClient.downloadFilePath(big.id) { path ->
                             runOnUiThread {
                                 runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
                                     ?.let { photo.setImageBitmap(it) }
