@@ -400,6 +400,14 @@ class PostViewActivity : FragmentActivity() {
                     val info = obj as? TdApi.MessageLinkInfo
                     val msg = info?.message
                     when {
+                        msg != null && msg.content is TdApi.MessageSticker -> {
+                            startActivity(
+                                Intent(this, MediaListActivity::class.java)
+                                    .putExtra("chatId", msg.chatId)
+                                    .putExtra("startAfterMessageId", msg.id)
+                                    .putExtra("title", "Contenuti")
+                            )
+                        }
                         msg != null -> startActivity(
                             Intent(this, PostViewActivity::class.java)
                                 .putExtra("chatId", msg.chatId)

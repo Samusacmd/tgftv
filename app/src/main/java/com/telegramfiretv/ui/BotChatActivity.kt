@@ -611,6 +611,16 @@ class BotChatActivity : FragmentActivity() {
                     val info = obj as? TdApi.MessageLinkInfo
                     val msg = info?.message
                     when {
+                        msg != null && msg.content is TdApi.MessageSticker -> {
+                            // Il segnalibro è uno sticker: si salta la schermata intermedia
+                            // e si va subito ai file del canale a partire da qui, senza uscire.
+                            startActivity(
+                                Intent(this, MediaListActivity::class.java)
+                                    .putExtra("chatId", msg.chatId)
+                                    .putExtra("startAfterMessageId", msg.id)
+                                    .putExtra("title", "Contenuti")
+                            )
+                        }
                         msg != null -> startActivity(
                             Intent(this, PostViewActivity::class.java)
                                 .putExtra("chatId", msg.chatId)
