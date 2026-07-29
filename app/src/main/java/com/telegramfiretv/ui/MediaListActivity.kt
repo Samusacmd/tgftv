@@ -389,6 +389,10 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     // trovato: viene agganciato in cima all'apertura invece di comparire in fondo dopo
     // tutti gli episodi. Escluso poi dal normale ciclo per non farlo comparire due volte.
     private var introPostId = 0L
+    // Id del messaggio-locandina (solo foto, senza pulsanti) quando è distinto dal post
+    // dei pulsanti: va escluso anche lui dal normale ciclo, altrimenti comparirebbe due
+    // volte (una nell'intestazione, una come foto qualunque in fondo alla griglia).
+    private var introPosterId = 0L
 
     // Scroll infinito: carichiamo a blocchi invece che tutto insieme.
     private var loading = false          // un blocco è in corso: evita richieste sovrapposte
@@ -557,12 +561,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             if (forumTopicId == 0) {
                 TdClient.getChatHistory(chatId, 1L, 1) { result ->
                     activity?.runOnUiThread {
-                        val first = (result as? TdApi.Messages)?.messages?.firstOrNull()
-                        if (first != null && first.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
+                        val first = (result as? TdApi.Messages)?.messages?.firstOrNull() ?: return@runOnUiThread
+                        if (first.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
+                            // Caso raro: il primissimo messaggio ha già i pulsanti. Cerchiamo
+                            // comunque una locandina nel messaggio subito precedente (se c'è).
                             introPostId = first.id
-                            // Se il post iniziale non ha una propria immagine (es. è uno
-                            // sticker), il messaggio subito precedente è spesso la vera
-                            // locandina: stesso meccanismo già usato in PostViewActivity.
                             TdClient.getChatHistory(chatId, first.id, 1) { prevResult ->
                                 activity?.runOnUiThread {
                                     val prevCandidate = (prevResult as? TdApi.Messages)?.messages?.firstOrNull()
@@ -572,6 +575,23 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                                         prevCandidate.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
                                     ) prevCandidate else null
                                     (activity as? MediaListActivity)?.showIntroHeader(first, posterMsg)
+                                }
+                            }
+                        } else {
+                            // Caso comune: il primo messaggio è SOLO la locandina (foto senza
+                            // pulsanti); i pulsanti di navigazione stagioni sono in un
+                            // messaggio successivo. Lo cerchiamo scorrendo in avanti da qui.
+                            introPosterId = first.id
+                            TdClient.getChatHistory(chatId, first.id, 5, offset = -5) { nextResult ->
+                                activity?.runOnUiThread {
+                                    val nextMsgs = (nextResult as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+                                        .filter { it.id > first.id }.sortedBy { it.id }
+                                    val buttonsMsg = nextMsgs.firstOrNull { it.replyMarkup is TdApi.ReplyMarkupInlineKeyboard }
+                                    if (buttonsMsg != null) {
+                                        introPostId = buttonsMsg.id
+                                        val posterMsg = if (first.content is TdApi.MessagePhoto) first else null
+                                        (activity as? MediaListActivity)?.showIntroHeader(buttonsMsg, posterMsg)
+                                    }
                                 }
                             }
                         }
@@ -679,7 +699,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 }
                 scanned += msgs.size
                 for (m in msgs) {
-                    if (m.id == introPostId) { oldest = m.id; continue }
+                    if (m.id == introPostId || m.id == introPosterId) { oldest = m.id; continue }
                     val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
                     if (kb != null) {
                         // Post con tastiera a pulsanti (es. menu con elenco stagioni/episodi):
