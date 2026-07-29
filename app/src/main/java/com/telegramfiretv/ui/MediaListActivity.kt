@@ -18,8 +18,10 @@ import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
@@ -145,6 +147,7 @@ class MediaListActivity : FragmentActivity() {
     private var forumTopicId = 0
     private var titleText: String? = null
     private var mode = "grid"
+    private lateinit var headerBox: LinearLayout
     private var startAfterMessageId = 0L
 
     companion object {
@@ -169,7 +172,23 @@ class MediaListActivity : FragmentActivity() {
         startAfterMessageId = intent.getLongExtra("startAfterMessageId", 0L)
 
         val containerId = View.generateViewId()
-        setContentView(FrameLayout(this).apply { id = containerId })
+        headerBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setBackgroundColor(0xFF0E1418.toInt())
+            setPadding(32, 24, 32, 16)
+        }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(headerBox)
+            addView(FrameLayout(this@MediaListActivity).apply {
+                id = containerId
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f
+                )
+            })
+        }
+        setContentView(root)
 
         if (savedInstanceState == null) {
             val f = MediaGridFragment().apply {
@@ -183,6 +202,148 @@ class MediaListActivity : FragmentActivity() {
             }
             supportFragmentManager.beginTransaction().replace(containerId, f).commit()
             Toast.makeText(this, "Premi MENU per elenco/griglia", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Mostra in cima allo schermo, sopra la griglia, il post iniziale del canale (locandina
+     * + trama) con subito sotto i pulsanti per selezionare la stagione/serie — sempre
+     * visibile all'apertura, invece di dover scorrere fino in fondo per trovarlo.
+     */
+    fun showIntroHeader(m: TdApi.Message, posterMsg: TdApi.Message?) {
+        headerBox.removeAllViews()
+        headerBox.visibility = View.VISIBLE
+
+        val c = m.content
+        val linkPreview = (c as? TdApi.MessageText)?.linkPreview
+        var bodyText = when {
+            linkPreview != null -> listOfNotNull(
+                linkPreview.title.ifBlank { null },
+                linkPreview.description.text.ifBlank { null }
+            ).joinToString("\n\n").ifBlank { (c as TdApi.MessageText).text.text }
+            c is TdApi.MessageText -> c.text.text
+            c is TdApi.MessagePhoto -> c.caption.text
+            c is TdApi.MessageVideo -> c.caption.text
+            c is TdApi.MessageDocument -> c.caption.text
+            else -> ""
+        }
+        if (bodyText.isBlank()) bodyText = (posterMsg?.content as? TdApi.MessagePhoto)?.caption?.text ?: ""
+
+        val img = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 360)
+                .also { it.bottomMargin = 16 }
+        }
+        // Foto: propria (se il post ha una vera foto), altrimenti quella dell'anteprima link,
+        // altrimenti quella del messaggio-locandina immediatamente precedente.
+        val photoObj: TdApi.Photo? = when {
+            c is TdApi.MessagePhoto -> c.photo
+            linkPreview != null -> when (val t = linkPreview.type) {
+                is TdApi.LinkPreviewTypePhoto -> t.photo
+                is TdApi.LinkPreviewTypeArticle -> t.photo
+                else -> null
+            }
+            else -> (posterMsg?.content as? TdApi.MessagePhoto)?.photo
+        }
+        val big = photoObj?.sizes?.maxByOrNull { it.width * it.height }?.photo
+        if (big != null) {
+            headerBox.addView(img)
+            photoObj.minithumbnail?.data?.let { d ->
+                runCatching { BitmapFactory.decodeByteArray(d, 0, d.size) }.getOrNull()
+                    ?.let { img.setImageBitmap(it) }
+            }
+            if (big.local.isDownloadingCompleted && big.local.path.isNotEmpty()) {
+                runCatching { BitmapFactory.decodeFile(big.local.path) }.getOrNull()
+                    ?.let { img.setImageBitmap(it) }
+            } else {
+                TdClient.downloadFilePath(big.id) { path ->
+                    runOnUiThread {
+                        runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+                            ?.let { img.setImageBitmap(it) }
+                    }
+                }
+            }
+        }
+
+        if (bodyText.isNotBlank()) {
+            headerBox.addView(TextView(this).apply {
+                text = bodyText
+                setTextColor(0xFFE6EDF2.toInt())
+                textSize = 15f
+                maxLines = 6
+                ellipsize = TextUtils.TruncateAt.END
+                setPadding(0, 0, 0, 16)
+            })
+        }
+
+        val markup = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
+        markup?.rows?.forEach { rowArr ->
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).also { it.bottomMargin = 8 }
+            }
+            rowArr.forEach { b ->
+                row.addView(Button(this).apply {
+                    text = b.text
+                    setBackgroundResource(R.drawable.bg_button)
+                    setTextColor(0xFFFFFFFF.toInt())
+                    isAllCaps = false
+                    textSize = 14f
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                        .also { it.rightMargin = 8 }
+                    setOnClickListener {
+                        when (val ty = b.type) {
+                            is TdApi.InlineKeyboardButtonTypeCallback ->
+                                TdClient.sendCallback(chatId, m.id, ty.data) {}
+                            is TdApi.InlineKeyboardButtonTypeUrl -> resolveAndOpen(ty.url)
+                            else -> {}
+                        }
+                    }
+                })
+            }
+            headerBox.addView(row)
+        }
+    }
+
+    /** Risoluzione ufficiale del link (stessa tecnica di PostViewActivity/BotChatActivity). */
+    private fun resolveAndOpen(raw: String) {
+        var link = raw.trim()
+        val i = link.indexOf("t.me/")
+        if (i > 0) link = link.substring(i)
+        if (link.startsWith("t.me/")) link = "https://$link"
+
+        if (link.contains("t.me/c/")) {
+            Toast.makeText(this, "Apro…", Toast.LENGTH_SHORT).show()
+            TdClient.getMessageLinkInfo(link) { obj ->
+                runOnUiThread {
+                    val info = obj as? TdApi.MessageLinkInfo
+                    val msg = info?.message
+                    when {
+                        msg != null && msg.content is TdApi.MessageSticker -> startActivity(
+                            Intent(this, MediaListActivity::class.java)
+                                .putExtra("chatId", msg.chatId)
+                                .putExtra("startAfterMessageId", msg.id)
+                                .putExtra("title", "Contenuti")
+                        )
+                        msg != null -> startActivity(
+                            Intent(this, PostViewActivity::class.java)
+                                .putExtra("chatId", msg.chatId)
+                                .putExtra("messageId", msg.id)
+                        )
+                        else -> Toast.makeText(this, "Link non risolvibile", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            return
+        }
+        if (link.startsWith("http://") || link.startsWith("https://")) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, android.net.Uri.parse(link)))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Impossibile aprire il link", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
@@ -399,11 +560,20 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         val first = (result as? TdApi.Messages)?.messages?.firstOrNull()
                         if (first != null && first.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
                             introPostId = first.id
-                            val label = postLabel(first)
-                            val th = mediaThumbOf(first)
-                            val entry = MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", first.id)
-                            collected.add(0, entry)
-                            itemsAdapter.add(0, entry)
+                            // Se il post iniziale non ha una propria immagine (es. è uno
+                            // sticker), il messaggio subito precedente è spesso la vera
+                            // locandina: stesso meccanismo già usato in PostViewActivity.
+                            TdClient.getChatHistory(chatId, first.id, 1) { prevResult ->
+                                activity?.runOnUiThread {
+                                    val prevCandidate = (prevResult as? TdApi.Messages)?.messages?.firstOrNull()
+                                    val posterMsg = if (
+                                        prevCandidate != null &&
+                                        prevCandidate.content is TdApi.MessagePhoto &&
+                                        prevCandidate.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
+                                    ) prevCandidate else null
+                                    (activity as? MediaListActivity)?.showIntroHeader(first, posterMsg)
+                                }
+                            }
                         }
                     }
                 }
