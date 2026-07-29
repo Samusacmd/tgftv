@@ -559,39 +559,24 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             // messaggio mai pubblicato: normalmente comparirebbe solo dopo aver scorso tutto
             // l'elenco (si carica dai più recenti all'indietro). Lo agganciamo qui in cima.
             if (forumTopicId == 0) {
-                TdClient.getChatHistory(chatId, 1L, 1) { result ->
+                // In questo canale gli episodi sono in ordine inverso: la locandina è il
+                // messaggio più VECCHIO, il post con i pulsanti di navigazione stagioni è
+                // invece il messaggio più RECENTE. Li recuperiamo indipendentemente.
+                TdClient.getChatHistory(chatId, 0L, 1) { newestResult ->
                     activity?.runOnUiThread {
-                        val first = (result as? TdApi.Messages)?.messages?.firstOrNull() ?: return@runOnUiThread
-                        if (first.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
-                            // Caso raro: il primissimo messaggio ha già i pulsanti. Cerchiamo
-                            // comunque una locandina nel messaggio subito precedente (se c'è).
-                            introPostId = first.id
-                            TdClient.getChatHistory(chatId, first.id, 1) { prevResult ->
+                        val buttonsMsg = (newestResult as? TdApi.Messages)?.messages?.firstOrNull()
+                        if (buttonsMsg != null && buttonsMsg.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
+                            introPostId = buttonsMsg.id
+                            TdClient.getChatHistory(chatId, 1L, 1) { oldestResult ->
                                 activity?.runOnUiThread {
-                                    val prevCandidate = (prevResult as? TdApi.Messages)?.messages?.firstOrNull()
+                                    val oldestMsg = (oldestResult as? TdApi.Messages)?.messages?.firstOrNull()
                                     val posterMsg = if (
-                                        prevCandidate != null &&
-                                        prevCandidate.content is TdApi.MessagePhoto &&
-                                        prevCandidate.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
-                                    ) prevCandidate else null
-                                    (activity as? MediaListActivity)?.showIntroHeader(first, posterMsg)
-                                }
-                            }
-                        } else {
-                            // Caso comune: il primo messaggio è SOLO la locandina (foto senza
-                            // pulsanti); i pulsanti di navigazione stagioni sono in un
-                            // messaggio successivo. Lo cerchiamo scorrendo in avanti da qui.
-                            introPosterId = first.id
-                            TdClient.getChatHistory(chatId, first.id, 5, offset = -5) { nextResult ->
-                                activity?.runOnUiThread {
-                                    val nextMsgs = (nextResult as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
-                                        .filter { it.id > first.id }.sortedBy { it.id }
-                                    val buttonsMsg = nextMsgs.firstOrNull { it.replyMarkup is TdApi.ReplyMarkupInlineKeyboard }
-                                    if (buttonsMsg != null) {
-                                        introPostId = buttonsMsg.id
-                                        val posterMsg = if (first.content is TdApi.MessagePhoto) first else null
-                                        (activity as? MediaListActivity)?.showIntroHeader(buttonsMsg, posterMsg)
-                                    }
+                                        oldestMsg != null &&
+                                        oldestMsg.content is TdApi.MessagePhoto &&
+                                        oldestMsg.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
+                                    ) oldestMsg else null
+                                    if (posterMsg != null) introPosterId = posterMsg.id
+                                    (activity as? MediaListActivity)?.showIntroHeader(buttonsMsg, posterMsg)
                                 }
                             }
                         }
