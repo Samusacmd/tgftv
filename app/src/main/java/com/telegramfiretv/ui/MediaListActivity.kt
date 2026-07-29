@@ -224,6 +224,10 @@ class MediaGridFragment : VerticalGridSupportFragment() {
     // l'inizio di una stagione) e si carica in avanti, verso i messaggi più nuovi.
     private var startAfterMessageId = 0L
     private var forwardCursor = 0L
+    // Id del "post iniziale" del canale (locandina + pulsanti navigazione stagioni), se
+    // trovato: viene agganciato in cima all'apertura invece di comparire in fondo dopo
+    // tutti gli episodi. Escluso poi dal normale ciclo per non farlo comparire due volte.
+    private var introPostId = 0L
 
     // Scroll infinito: carichiamo a blocchi invece che tutto insieme.
     private var loading = false          // un blocco è in corso: evita richieste sovrapposte
@@ -386,6 +390,24 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             reachedEnd = true
         } else {
             title = "Carico…"
+            // Il post iniziale del canale (locandina + pulsanti stagioni) è spesso il primo
+            // messaggio mai pubblicato: normalmente comparirebbe solo dopo aver scorso tutto
+            // l'elenco (si carica dai più recenti all'indietro). Lo agganciamo qui in cima.
+            if (forumTopicId == 0) {
+                TdClient.getChatHistory(chatId, 1L, 1) { result ->
+                    activity?.runOnUiThread {
+                        val first = (result as? TdApi.Messages)?.messages?.firstOrNull()
+                        if (first != null && first.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
+                            introPostId = first.id
+                            val label = postLabel(first)
+                            val th = mediaThumbOf(first)
+                            val entry = MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", first.id)
+                            collected.add(0, entry)
+                            itemsAdapter.add(0, entry)
+                        }
+                    }
+                }
+            }
             loadBatch()
         }
     }
@@ -487,6 +509,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 }
                 scanned += msgs.size
                 for (m in msgs) {
+                    if (m.id == introPostId) { oldest = m.id; continue }
                     val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
                     if (kb != null) {
                         // Post con tastiera a pulsanti (es. menu con elenco stagioni/episodi):
