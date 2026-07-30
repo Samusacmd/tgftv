@@ -27,9 +27,9 @@ class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
         }
         val vh = VH(cardView)
 
-        // "Tieni premuto OK per 5 secondi" per uscire dal canale/gruppo, con conferma.
+        // "Tieni premuto OK per 3 secondi" per uscire dal canale/gruppo, con conferma.
         // Usiamo il tasto (non un semplice OnLongClickListener, che scatta troppo presto)
-        // per poter misurare esattamente i 5 secondi di pressione continua.
+        // per poter misurare esattamente i 3 secondi di pressione continua.
         val handler = Handler(Looper.getMainLooper())
         var holding = false
         var triggered = false
@@ -45,7 +45,7 @@ class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
                         if (event.repeatCount == 0 && !holding) {
                             holding = true
                             triggered = false
-                            handler.postDelayed(holdRunnable, 5000)
+                            handler.postDelayed(holdRunnable, 3000)
                         }
                         false
                     }
@@ -101,18 +101,31 @@ class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
             else -> ""
         }
 
-    /** Avviso di conferma prima di uscire; alla conferma esce, aggiorna la lista e pulisce la cache. */
+    /** Avviso di conferma prima di uscire (testo diverso per tipo di chat); alla conferma
+     *  esce, aggiorna la lista e pulisce la cache. */
     private fun confirmLeaveChat(context: Context, chat: TdApi.Chat) {
+        val title = chat.title
+        val type = chat.type
+        val message = when {
+            type is TdApi.ChatTypePrivate && TdClient.cachedUser(type.userId)?.type is TdApi.UserTypeBot ->
+                "Uscire da \"$title\"? Per rientrare nel bot potrebbe servire un nuovo invito."
+            type is TdApi.ChatTypePrivate ->
+                "Uscire dalla chat privata con \"$title\"? Perderai tutta la cronologia della conversazione."
+            type is TdApi.ChatTypeSupergroup && type.isChannel ->
+                "Uscire dal canale \"$title\"? Per rientrare nel canale potrebbe servire un nuovo invito."
+            else ->
+                "Uscire dal gruppo \"$title\"? Per rientrare nel gruppo potrebbe servire un nuovo invito."
+        }
         android.app.AlertDialog.Builder(context)
-            .setTitle("Uscire da \"${chat.title}\"?")
-            .setMessage("Verrai rimosso da questo canale/gruppo. Per rientrare potrebbe servire un nuovo invito.")
+            .setTitle("Conferma uscita")
+            .setMessage(message)
             .setPositiveButton("Esci") { _, _ ->
                 TdClient.leaveChat(chat.id) {
                     // All'uscita: aggiorna la lista chat e pulisce automaticamente la cache
                     // dei media, che altrimenti resterebbe legata a un canale non più presente.
                     TdClient.loadChats(200)
                     MediaListActivity.clearCache()
-                    Toast.makeText(context, "Uscito da \"${chat.title}\"", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Uscito da \"$title\"", Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Annulla", null)
