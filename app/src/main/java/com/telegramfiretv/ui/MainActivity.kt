@@ -63,6 +63,18 @@ class MainActivity : FragmentActivity() {
             layoutParams = lp
             setPadding(20, 16, 20, 16)
             setOnClickListener { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) }
+            // Tenuto premuto: apre la scelta "vai in cima / vai in fondo" all'elenco chat.
+            // È un gesto deliberato apposta, per non rischiare di attivarlo per sbaglio
+            // durante la normale navigazione col telecomando.
+            setOnLongClickListener {
+                android.app.AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Vai a…")
+                    .setItems(arrayOf("▲ Inizio elenco", "▼ Fine elenco")) { _, which ->
+                        jumpChatList(toTop = which == 0)
+                    }
+                    .show()
+                true
+            }
         }
         bar.addView(menuBtn)
         bar.addView(chatTab)
@@ -111,6 +123,10 @@ class MainActivity : FragmentActivity() {
             minWidth = 0
             minimumWidth = 0
             setPadding(24, 18, 24, 18)
+            // Isolati dal D-pad: la navigazione con le frecce non deve mai finirci sopra
+            // per sbaglio. Si attivano solo tenendo premuto ☰ (gesto deliberato).
+            isFocusable = false
+            isFocusableInTouchMode = false
             setOnClickListener { onClick() }
         }
         jumpTopBtn = makeJumpButton("▲") { jumpChatList(toTop = true) }
@@ -133,33 +149,6 @@ class MainActivity : FragmentActivity() {
         setContentView(overlay)
         updateTabs()
         showFragment()
-    }
-
-    /**
-     * Con liste lunghe, premere SINISTRA sull'ultima chat selezionata non sempre arriva ai
-     * tasti ▲/▼ (la ricerca automatica del focus può fallire su salti grandi sullo schermo).
-     * Intercettiamo qui SINISTRA e spostiamo il focus direttamente sul tasto più vicino.
-     * Usiamo la posizione LOGICA nell'elenco (selectedPosition/itemCount), non le coordinate
-     * sullo schermo: in una griglia Leanback il "focus" restituito da Android corrisponde
-     * al contenitore della griglia (che parte sempre dall'alto), non alla cella
-     * effettivamente selezionata — usare le coordinate portava sempre su ▲.
-     */
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) {
-            val focused = currentFocus
-            if (focused != null && focused !== jumpTopBtn && focused !== jumpBottomBtn) {
-                val grid = findViewById<View>(containerId)
-                    ?.findViewById<androidx.leanback.widget.VerticalGridView>(androidx.leanback.R.id.browse_grid)
-                if (grid != null) {
-                    val count = grid.adapter?.itemCount ?: 0
-                    val pos = grid.selectedPosition
-                    val nearTop = count <= 0 || pos <= count / 2
-                    if (nearTop) jumpTopBtn.requestFocus() else jumpBottomBtn.requestFocus()
-                    return true
-                }
-            }
-        }
-        return super.dispatchKeyEvent(event)
     }
 
     private fun switchTo(list: String) {
