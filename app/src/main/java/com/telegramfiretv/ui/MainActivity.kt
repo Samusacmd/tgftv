@@ -138,18 +138,25 @@ class MainActivity : FragmentActivity() {
     /**
      * Con liste lunghe, premere SINISTRA sull'ultima chat selezionata non sempre arriva ai
      * tasti ▲/▼ (la ricerca automatica del focus può fallire su salti grandi sullo schermo).
-     * Intercettiamo qui SINISTRA e spostiamo il focus direttamente sul tasto più vicino
-     * (▲ se l'elemento selezionato è nella metà alta dello schermo, ▼ altrimenti).
+     * Intercettiamo qui SINISTRA e spostiamo il focus direttamente sul tasto più vicino.
+     * Usiamo la posizione LOGICA nell'elenco (selectedPosition/itemCount), non le coordinate
+     * sullo schermo: in una griglia Leanback il "focus" restituito da Android corrisponde
+     * al contenitore della griglia (che parte sempre dall'alto), non alla cella
+     * effettivamente selezionata — usare le coordinate portava sempre su ▲.
      */
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) {
             val focused = currentFocus
             if (focused != null && focused !== jumpTopBtn && focused !== jumpBottomBtn) {
-                val loc = IntArray(2)
-                focused.getLocationOnScreen(loc)
-                val screenHeight = resources.displayMetrics.heightPixels
-                if (loc[1] < screenHeight / 2) jumpTopBtn.requestFocus() else jumpBottomBtn.requestFocus()
-                return true
+                val grid = findViewById<View>(containerId)
+                    ?.findViewById<androidx.leanback.widget.VerticalGridView>(androidx.leanback.R.id.browse_grid)
+                if (grid != null) {
+                    val count = grid.adapter?.itemCount ?: 0
+                    val pos = grid.selectedPosition
+                    val nearTop = count <= 0 || pos <= count / 2
+                    if (nearTop) jumpTopBtn.requestFocus() else jumpBottomBtn.requestFocus()
+                    return true
+                }
             }
         }
         return super.dispatchKeyEvent(event)
