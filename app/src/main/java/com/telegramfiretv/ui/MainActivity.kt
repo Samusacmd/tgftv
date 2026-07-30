@@ -37,38 +37,6 @@ class MainActivity : FragmentActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(48, 24, 48, 12)
         }
-        // Vai in cima / vai in fondo all'elenco chat: utili con molte chat, per non dover
-        // scorrere manualmente tutta la lista. Solo qui (Chat/Archiviate), non nei file media.
-        val jumpTopBtn = Button(this).apply {
-            text = "\u25B2"
-            setBackgroundResource(R.drawable.bg_button)
-            setTextColor(0xFFFFFFFF.toInt())
-            isAllCaps = false
-            textSize = 16f
-            minWidth = 0
-            minimumWidth = 0
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).also { it.rightMargin = 8 }
-            setPadding(20, 16, 20, 16)
-            setOnClickListener { jumpChatList(toTop = true) }
-        }
-        val jumpBottomBtn = Button(this).apply {
-            text = "\u25BC"
-            setBackgroundResource(R.drawable.bg_button)
-            setTextColor(0xFFFFFFFF.toInt())
-            isAllCaps = false
-            textSize = 16f
-            minWidth = 0
-            minimumWidth = 0
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
-            ).also { it.rightMargin = 16 }
-            setPadding(20, 16, 20, 16)
-            setOnClickListener { jumpChatList(toTop = false) }
-        }
-        bar.addView(jumpTopBtn)
-        bar.addView(jumpBottomBtn)
         chatTab = tabButton("Chat")
         archiveTab = tabButton("Archiviate")
         val searchBtn = tabButton("Cerca")
@@ -129,7 +97,37 @@ class MainActivity : FragmentActivity() {
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
         )
 
-        setContentView(root)
+        // Tasti "vai all'inizio" / "vai alla fine" dell'elenco chat, fissi sulla sinistra
+        // dello schermo (in alto e in basso): utili con molte chat, senza dover scorrere
+        // manualmente tutta la lista.
+        fun makeJumpButton(symbol: String, onClick: () -> Unit) = Button(this).apply {
+            text = symbol
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            textSize = 18f
+            minWidth = 0
+            minimumWidth = 0
+            setPadding(24, 18, 24, 18)
+            setOnClickListener { onClick() }
+        }
+        val jumpTopBtn = makeJumpButton("▲") { jumpChatList(toTop = true) }
+        val jumpBottomBtn = makeJumpButton("▼") { jumpChatList(toTop = false) }
+        val overlay = FrameLayout(this).apply {
+            addView(root, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
+            ))
+            addView(jumpTopBtn, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.TOP or Gravity.START
+            ).also { it.topMargin = 96; it.leftMargin = 16 })
+            addView(jumpBottomBtn, FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                Gravity.BOTTOM or Gravity.START
+            ).also { it.bottomMargin = 48; it.leftMargin = 16 })
+        }
+
+        setContentView(overlay)
         updateTabs()
         showFragment()
     }
