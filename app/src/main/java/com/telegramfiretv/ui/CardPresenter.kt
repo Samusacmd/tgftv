@@ -120,12 +120,18 @@ class CardPresenter(private val thumbs: ThumbLoader) : Presenter() {
             .setTitle("Conferma uscita")
             .setMessage(message)
             .setPositiveButton("Esci") { _, _ ->
-                TdClient.leaveChat(chat.id) {
-                    // All'uscita: aggiorna la lista chat e pulisce automaticamente la cache
-                    // dei media, che altrimenti resterebbe legata a un canale non più presente.
+                // Le chat private (persone e bot) non si possono "lasciare" con LeaveChat:
+                // TDLib lo permette solo per gruppi/canali. Per le private l'equivalente è
+                // eliminarne la cronologia rimuovendole dall'elenco.
+                val onDone: (TdApi.Object) -> Unit = {
                     TdClient.loadChats(200)
                     MediaListActivity.clearCache()
                     Toast.makeText(context, "Uscito da \"$title\"", Toast.LENGTH_SHORT).show()
+                }
+                if (type is TdApi.ChatTypePrivate) {
+                    TdClient.deleteChatHistory(chat.id, removeFromChatList = true, revoke = false, handler = onDone)
+                } else {
+                    TdClient.leaveChat(chat.id, onDone)
                 }
             }
             .setNegativeButton("Annulla", null)
