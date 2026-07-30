@@ -222,6 +222,11 @@ object TdClient {
         client?.send(TdApi.LoadChats(TdApi.ChatListArchive(), limit)) {}
     }
 
+    /** Esce da un canale/gruppo (o abbandona una chat privata dai contatti recenti). */
+    fun leaveChat(chatId: Long, handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(TdApi.LeaveChat(chatId)) { handler(it) }
+    }
+
     fun orderedChats(): List<TdApi.Chat> {
         synchronized(chats) {
             val main = chats.filter { mainOrder.containsKey(it.id) }
