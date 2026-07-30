@@ -227,6 +227,15 @@ object TdClient {
         client?.send(TdApi.LeaveChat(chatId)) { handler(it) }
     }
 
+    /**
+     * Rimuove una chat PRIVATA (persona o bot) dall'elenco, cancellandone la cronologia.
+     * NOTA: TDLib non permette di "uscire" (LeaveChat) dalle chat private o segrete — per
+     * quelle l'unica azione equivalente è eliminarne la cronologia e toglierle dalla lista.
+     */
+    fun deleteChatHistory(chatId: Long, removeFromChatList: Boolean = true, revoke: Boolean = false, handler: (TdApi.Object) -> Unit = {}) {
+        client?.send(TdApi.DeleteChatHistory(chatId, removeFromChatList, revoke)) { handler(it) }
+    }
+
     fun orderedChats(): List<TdApi.Chat> {
         synchronized(chats) {
             val main = chats.filter { mainOrder.containsKey(it.id) }
