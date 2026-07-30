@@ -56,15 +56,6 @@ class PostViewActivity : FragmentActivity() {
         }
         root.addView(titleTv)
 
-        // Riga diagnostica temporanea: mostra l'id del messaggio ottenuto e il tipo di
-        // contenuto, per verificare se il link porta davvero al messaggio giusto.
-        val debugTv = TextView(this).apply {
-            setTextColor(0xFF8899A6.toInt())
-            textSize = 12f
-            setPadding(0, 0, 0, 16)
-        }
-        root.addView(debugTv)
-
         val photo = ImageView(this).apply {
             scaleType = ImageView.ScaleType.CENTER_CROP
             visibility = View.GONE
@@ -104,8 +95,6 @@ class PostViewActivity : FragmentActivity() {
             titleTv.text = "Messaggio non disponibile"
             return
         }
-        val requestedDebug = "richiesto: chatId=$chatId  messageId=$messageId"
-        debugTv.text = requestedDebug
 
         TdClient.getChat(chatId) { c ->
             runOnUiThread { if (c is TdApi.Chat) titleTv.text = c.title }
@@ -131,7 +120,7 @@ class PostViewActivity : FragmentActivity() {
                             prevCandidate.content is TdApi.MessagePhoto &&
                             prevCandidate.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
                         ) prevCandidate else null
-                        render(obj, posterMsg, titleTv, photo, textTv, buttonsBox, debugTv, requestedDebug)
+                        render(obj, posterMsg, titleTv, photo, textTv, buttonsBox)
                     }
                 }
             }
@@ -140,10 +129,9 @@ class PostViewActivity : FragmentActivity() {
 
     private fun render(
         m: TdApi.Message, posterMsg: TdApi.Message?, titleTv2: TextView, photo: ImageView, textTv: TextView,
-        buttonsBox: LinearLayout, debugTv: TextView, requestedDebug: String
+        buttonsBox: LinearLayout
     ) {
         val c = m.content
-        debugTv.text = "$requestedDebug\nottenuto: id=${m.id}  contenuto=${c.javaClass.simpleName}  hasReplyMarkup=${m.replyMarkup != null}"
         val linkPreview = (c as? TdApi.MessageText)?.linkPreview
         val bodyText = when {
             linkPreview != null -> {
