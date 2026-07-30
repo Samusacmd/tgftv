@@ -557,33 +557,43 @@ class MediaGridFragment : VerticalGridSupportFragment() {
             title = "Carico…"
             // Il post iniziale del canale (locandina + pulsanti stagioni) è spesso il primo
             // messaggio mai pubblicato: normalmente comparirebbe solo dopo aver scorso tutto
-            // l'elenco (si carica dai più recenti all'indietro). Lo agganciamo qui in cima.
+            // l'elenco (si carica dai più recenti all'indietro). Lo agganciamo qui in cima,
+            // e solo DOPO avviamo il caricamento normale della griglia: così l'esclusione
+            // (introPostId/introPosterId) è già pronta quando la griglia inizia a leggere i
+            // messaggi, ed evitiamo che il post compaia anche come voce normale.
             if (forumTopicId == 0) {
-                // In questo canale gli episodi sono in ordine inverso: la locandina è il
-                // messaggio più VECCHIO, il post con i pulsanti di navigazione stagioni è
-                // invece il messaggio più RECENTE. Li recuperiamo indipendentemente.
-                TdClient.getChatHistory(chatId, 0L, 1) { newestResult ->
+                // Locandina e post-pulsanti possono essere sia i primissimi che gli ultimi
+                // messaggi del canale (varia da canale a canale): controlliamo alcuni
+                // messaggi da ENTRAMBI gli estremi e li abbiniamo, indipendentemente da
+                // quale dei due lati contenga cosa.
+                TdClient.getChatHistory(chatId, 0L, 3) { newestResult ->
                     activity?.runOnUiThread {
-                        val buttonsMsg = (newestResult as? TdApi.Messages)?.messages?.firstOrNull()
-                        if (buttonsMsg != null && buttonsMsg.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) {
-                            introPostId = buttonsMsg.id
-                            TdClient.getChatHistory(chatId, 1L, 1) { oldestResult ->
-                                activity?.runOnUiThread {
-                                    val oldestMsg = (oldestResult as? TdApi.Messages)?.messages?.firstOrNull()
-                                    val posterMsg = if (
-                                        oldestMsg != null &&
-                                        oldestMsg.content is TdApi.MessagePhoto &&
-                                        oldestMsg.replyMarkup !is TdApi.ReplyMarkupInlineKeyboard
-                                    ) oldestMsg else null
+                        val newestMsgs = (newestResult as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+                        TdClient.getChatHistory(chatId, 1L, 3) { oldestResult ->
+                            activity?.runOnUiThread {
+                                val oldestMsgs = (oldestResult as? TdApi.Messages)?.messages?.filterNotNull().orEmpty()
+                                val pool = (newestMsgs + oldestMsgs).distinctBy { it.id }
+
+                                val buttonsMsg = pool.firstOrNull { it.replyMarkup is TdApi.ReplyMarkupInlineKeyboard }
+                                if (buttonsMsg != null) {
+                                    introPostId = buttonsMsg.id
+                                    val posterMsg = pool.firstOrNull { cand ->
+                                        cand.id != buttonsMsg.id && (
+                                            cand.content is TdApi.MessagePhoto ||
+                                            ((cand.content as? TdApi.MessageText)?.linkPreview != null)
+                                        )
+                                    }
                                     if (posterMsg != null) introPosterId = posterMsg.id
                                     (activity as? MediaListActivity)?.showIntroHeader(buttonsMsg, posterMsg)
                                 }
+                                loadBatch()
                             }
                         }
                     }
                 }
+            } else {
+                loadBatch()
             }
-            loadBatch()
         }
     }
 
