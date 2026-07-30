@@ -18,6 +18,8 @@ import com.telegramfiretv.UpdateManager
 class MainActivity : FragmentActivity() {
 
     private var containerId = 0
+    private lateinit var jumpTopBtn: Button
+    private lateinit var jumpBottomBtn: Button
     private var currentSig: String? = null
     private var currentList = "main"
     private lateinit var chatTab: Button
@@ -111,8 +113,8 @@ class MainActivity : FragmentActivity() {
             setPadding(24, 18, 24, 18)
             setOnClickListener { onClick() }
         }
-        val jumpTopBtn = makeJumpButton("▲") { jumpChatList(toTop = true) }
-        val jumpBottomBtn = makeJumpButton("▼") { jumpChatList(toTop = false) }
+        jumpTopBtn = makeJumpButton("▲") { jumpChatList(toTop = true) }
+        jumpBottomBtn = makeJumpButton("▼") { jumpChatList(toTop = false) }
         val overlay = FrameLayout(this).apply {
             addView(root, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT
@@ -120,7 +122,8 @@ class MainActivity : FragmentActivity() {
             addView(jumpTopBtn, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.TOP or Gravity.START
-            ).also { it.topMargin = 96; it.leftMargin = 16 })
+            // Più in basso del tasto ☰: prima si sovrapponeva al menu.
+            ).also { it.topMargin = 220; it.leftMargin = 16 })
             addView(jumpBottomBtn, FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
                 Gravity.BOTTOM or Gravity.START
@@ -130,6 +133,26 @@ class MainActivity : FragmentActivity() {
         setContentView(overlay)
         updateTabs()
         showFragment()
+    }
+
+    /**
+     * Con liste lunghe, premere SINISTRA sull'ultima chat selezionata non sempre arriva ai
+     * tasti ▲/▼ (la ricerca automatica del focus può fallire su salti grandi sullo schermo).
+     * Intercettiamo qui SINISTRA e spostiamo il focus direttamente sul tasto più vicino
+     * (▲ se l'elemento selezionato è nella metà alta dello schermo, ▼ altrimenti).
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT && event.action == KeyEvent.ACTION_DOWN) {
+            val focused = currentFocus
+            if (focused != null && focused !== jumpTopBtn && focused !== jumpBottomBtn) {
+                val loc = IntArray(2)
+                focused.getLocationOnScreen(loc)
+                val screenHeight = resources.displayMetrics.heightPixels
+                if (loc[1] < screenHeight / 2) jumpTopBtn.requestFocus() else jumpBottomBtn.requestFocus()
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     private fun switchTo(list: String) {
