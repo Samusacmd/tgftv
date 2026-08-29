@@ -320,7 +320,9 @@ object TdClient {
     }
 
     fun searchPublicChats(query: String, handler: (TdApi.Object) -> Unit) {
-        client?.send(TdApi.SearchPublicChats(query)) { handler(it) }
+        // Versioni recenti di TDLib richiedono anche il filtro per tipo di chat:
+        // null = nessun filtro, stesso comportamento di prima (cerca in tutti i tipi).
+        client?.send(TdApi.SearchPublicChats(query, null)) { handler(it) }
     }
 
     fun getChat(chatId: Long, handler: (TdApi.Object) -> Unit) {
