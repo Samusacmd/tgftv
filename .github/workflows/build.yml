@@ -23,21 +23,15 @@ jobs:
       - name: Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Cache di TDLib (output Android)
-        id: tdlib-cache
-        uses: actions/cache@v4
-        with:
-          path: tdlib-out
-          key: tdlib-${{ runner.os }}-${{ hashFiles('.tdlib-version') }}
-
-      - name: Compila TDLib per Android (Docker)
-        if: steps.tdlib-cache.outputs.cache-hit != 'true'
+      - name: Scarica TDLib già compilato (Release da Samusacmd/tdlib-android-build)
         env:
-          DOCKER_BUILDKIT: "1"
+          GH_TOKEN: ${{ secrets.TDLIB_REPO_TOKEN }}
         run: |
-          git clone --depth 1 https://github.com/tdlib/td.git
-          cd td/example/android
-          docker build --output "$GITHUB_WORKSPACE/tdlib-out" .
+          gh release download --repo Samusacmd/tdlib-android-build \
+            --pattern 'tdlib-out.zip' --clobber
+          unzip -o tdlib-out.zip
+          rm tdlib-out.zip
+          echo "===== tdlib-out estratto ====="; find tdlib-out | sort
 
       - name: Estrai TDLib e integra nel progetto
         run: |
