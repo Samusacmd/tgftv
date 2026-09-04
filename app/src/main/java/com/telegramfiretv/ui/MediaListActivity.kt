@@ -77,7 +77,15 @@ private fun mediaThumbOf(m: TdApi.Message): Pair<ByteArray?, TdApi.File?>? {
 }
 
 /** Stessa chiave usata dal player (keyFor): id remoto stabile, con ripiego sull'id locale. */
-private fun watchKeyOf(f: TdApi.File): String = f.remote.uniqueId.ifEmpty { "fid_${f.id}" }
+/**
+ * Chiave stabile per il flag "già visto": SOLO l'id univoco remoto del file.
+ * Non c'è un ripiego sull'id locale (file.id): quell'id vale solo per la sessione
+ * corrente e TDLib può riassegnarlo a un file completamente diverso in seguito (dopo
+ * una pulizia cache, un riavvio, ecc.) — un ripiego lì causava stelline sbagliate su
+ * file mai riprodotti. Se l'id univoco non c'è, il file semplicemente non partecipa
+ * al sistema dei "già visti" (stringa vuota, stesso trattamento già riservato alle foto).
+ */
+private fun watchKeyOf(f: TdApi.File): String = f.remote.uniqueId
 
 data class TopicEntry(val forumTopicId: Int, val name: String, val mini: ByteArray?, val thumbFile: TdApi.File?)
 
