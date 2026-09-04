@@ -79,7 +79,14 @@ class PlayerActivity : FragmentActivity() {
 
     /** Chiave stabile per la posizione di ripresa: usa l'id univoco remoto del file
      *  (persistente tra sessioni), con ripiego sull'id locale se non disponibile. */
-    private fun keyFor(file: TdApi.File): String = file.remote.uniqueId.ifEmpty { "fid_${file.id}" }
+    /**
+     * Chiave stabile per posizione di ripresa e flag "già visto": SOLO l'id univoco
+     * remoto del file, mai l'id locale (file.id) — quello vale solo per la sessione
+     * corrente e può essere riassegnato da TDLib a un file diverso in seguito, il che
+     * causava stelline "già visto" sbagliate su file mai aperti. Se l'id univoco non
+     * c'è, niente ripiego: per quel file la ripresa/il flag semplicemente non si salvano.
+     */
+    private fun keyFor(file: TdApi.File): String = file.remote.uniqueId
 
     /**
      * Ricava un MIME type da passare a ExoPlayer in base all'estensione del nome file.
