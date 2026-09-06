@@ -10,6 +10,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.BuildConfig
 import com.telegramfiretv.R
@@ -69,6 +70,34 @@ class MainActivity : FragmentActivity() {
         }
         bar.addView(jumpTopBtn)
         bar.addView(jumpBottomBtn)
+        // Aggiorna la lista che stai guardando in questo momento (Chat o Archiviate),
+        // con una richiesta vera a TDLib — non solo "carica altre chat" come prima.
+        val refreshBtn = Button(this).apply {
+            text = "\u21BB"
+            setBackgroundResource(R.drawable.bg_button)
+            setTextColor(0xFFFFFFFF.toInt())
+            isAllCaps = false
+            textSize = 16f
+            minWidth = 0
+            minimumWidth = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            ).also { it.rightMargin = 16 }
+            setPadding(20, 16, 20, 16)
+            setOnClickListener {
+                val isArchive = currentList == "archive"
+                TdClient.refreshChatList(archive = isArchive) {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (isArchive) "Archiviate aggiornate" else "Chat aggiornate",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+        }
+        bar.addView(refreshBtn)
         chatTab = tabButton("Chat")
         archiveTab = tabButton("Archiviate")
         val searchBtn = tabButton("Cerca")

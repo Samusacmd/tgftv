@@ -199,15 +199,8 @@ class SettingsActivity : FragmentActivity() {
         }
         menuButtons.add(bufferBtn)
 
-        val refreshBtn = makeButton()
-        refreshBtn.text = "Aggiorna chat"
-        refreshBtn.setOnClickListener {
-            MediaListActivity.clearCache()
-            TdClient.loadChats(200)
-            Toast.makeText(this, "Chat aggiornate", Toast.LENGTH_SHORT).show()
-            refreshBtn.text = "Aggiorna chat  ✓"
-        }
-        menuButtons.add(refreshBtn)
+        // "Aggiorna chat" è stato spostato nella home (accanto a ▲/▼): lì l'app sa
+        // davvero se stai guardando Chat o Archiviate, cosa che qui non potrebbe sapere.
 
         val cacheBtn = makeButton()
         cacheBtn.text = "Svuota cache"
