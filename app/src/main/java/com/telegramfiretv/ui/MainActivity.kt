@@ -15,6 +15,7 @@ import androidx.fragment.app.FragmentActivity
 import com.telegramfiretv.BuildConfig
 import com.telegramfiretv.R
 import com.telegramfiretv.UpdateManager
+import com.telegramfiretv.tdlib.TdClient
 
 class MainActivity : FragmentActivity() {
 
