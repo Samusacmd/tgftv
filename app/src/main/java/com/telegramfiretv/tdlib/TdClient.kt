@@ -222,6 +222,17 @@ object TdClient {
         client?.send(TdApi.LoadChats(TdApi.ChatListArchive(), limit)) {}
     }
 
+    /**
+     * Riallineamento VERO di una sola lista chat (Chat o Archiviate): a differenza di
+     * loadChats (che carica solo chat aggiuntive oltre a quelle già in cache, utile per
+     * la paginazione), GetChats chiede a TDLib lo stato attuale delle chat già note,
+     * facendo arrivare aggiornamenti anche per quelle che non erano cambiate di posizione.
+     */
+    fun refreshChatList(archive: Boolean, limit: Int = 200, handler: (TdApi.Object) -> Unit = {}) {
+        val list: TdApi.ChatList = if (archive) TdApi.ChatListArchive() else TdApi.ChatListMain()
+        client?.send(TdApi.GetChats(list, limit)) { handler(it) }
+    }
+
     /** Esce da un canale/gruppo (o abbandona una chat privata dai contatti recenti). */
     fun leaveChat(chatId: Long, handler: (TdApi.Object) -> Unit = {}) {
         client?.send(TdApi.LeaveChat(chatId)) { handler(it) }
