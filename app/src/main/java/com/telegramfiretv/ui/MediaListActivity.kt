@@ -50,6 +50,22 @@ data class MediaEntry(
 )
 
 /** Etichetta breve per una voce "Post": usa il testo/didascalia se c'è, altrimenti un segnaposto. */
+/**
+ * Un messaggio va sempre mostrato (mai nascosto dal filtro "Solo video e audio") se ha
+ * una tastiera di pulsanti VERA, oppure se è una foto/testo con una didascalia/testo
+ * non vuoti — es. locandina con trama, generi, link: contenuto informativo che non è
+ * "solo una foto qualunque", anche senza pulsanti Telegram nativi (solo link di testo
+ * dentro la didascalia, che l'app non riconosce come tastiera).
+ */
+private fun hasRichContent(m: TdApi.Message): Boolean {
+    if (m.replyMarkup is TdApi.ReplyMarkupInlineKeyboard) return true
+    return when (val c = m.content) {
+        is TdApi.MessagePhoto -> c.caption.text.isNotBlank()
+        is TdApi.MessageText -> c.text.text.isNotBlank()
+        else -> false
+    }
+}
+
 private fun postLabel(m: TdApi.Message): String {
     val t = when (val c = m.content) {
         is TdApi.MessageText -> c.text.text
@@ -653,8 +669,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 }
                 scanned += newer.size
                 for (m in newer) {
-                    val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
-                    if (kb != null) {
+                    if (hasRichContent(m)) {
                         val label = postLabel(m)
                         val th = mediaThumbOf(m)
                         collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
@@ -703,11 +718,10 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                 scanned += msgs.size
                 for (m in msgs) {
                     if (m.id == introPostId || m.id == introPosterId) { oldest = m.id; continue }
-                    val kb = m.replyMarkup as? TdApi.ReplyMarkupInlineKeyboard
-                    if (kb != null) {
-                        // Post con tastiera a pulsanti (es. menu con elenco stagioni/episodi):
-                        // lo trattiamo come voce a sé, apribile per usare i pulsanti, invece
-                        // di estrarne il solo media (che da solo perderebbe i pulsanti).
+                    if (hasRichContent(m)) {
+                        // Post "ricco" (tastiera di pulsanti, oppure foto/testo con
+                        // didascalia): lo trattiamo come voce a sé, mostrata sempre,
+                        // invece di rischiare di nasconderlo come una semplice foto.
                         val label = postLabel(m)
                         val th = mediaThumbOf(m)
                         collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
@@ -746,7 +760,11 @@ class MediaGridFragment : VerticalGridSupportFragment() {
         }
         initialShown = true
         val suffix = if (reachedEnd) "" else "…"
-        title = "${collected.size} contenuti$suffix"
+        // Se un errore ha interrotto il caricamento (anche con qualcosa già raccolto),
+        // lo mostriamo sempre: prima veniva nascosto silenziosamente quando la lista
+        // non era vuota, facendo sembrare "completo" un elenco in realtà troncato.
+        title = if (lastError != null) "${collected.size} contenuti$suffix — $lastError"
+                else "${collected.size} contenuti$suffix"
 
         if (forumTopicId == 0 && startAfterMessageId == 0L) {
             MediaListActivity.cache = collected.toList()
