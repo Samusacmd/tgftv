@@ -22,6 +22,12 @@ jobs:
 
       - name: Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # Google ha rimosso il pacchetto "tools" (superato da anni) dal proprio
+          # repository SDK: l'azione lo richiede di default insieme a platform-tools e
+          # fallisce sempre ("Failed to find package 'tools'"). Chiediamo solo quello
+          # che serve davvero — sdkmanager/cmdline-tools li installa comunque da sé.
+          packages: "platform-tools"
 
       - name: Scarica TDLib già compilato (Release da Samusacmd/tdlib-android-build)
         env:
