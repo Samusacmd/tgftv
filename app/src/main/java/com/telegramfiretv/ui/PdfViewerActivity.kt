@@ -136,23 +136,53 @@ class PdfViewerActivity : Activity() {
     private fun openPdf(path: String) {
         status.text = "Apro il PDF…"
         worker.execute {
-            try {
-                val pfd = ParcelFileDescriptor.open(File(path), ParcelFileDescriptor.MODE_READ_ONLY)
-                val r = PdfRenderer(pfd)
-                renderer = r
-                pageCount = r.pageCount
-                val saved = getSharedPreferences("pdf_pos", Context.MODE_PRIVATE).getInt(prefKey, 0)
-                runOnUiThread {
-                    if (pageCount == 0) { fail("PDF vuoto"); return@runOnUiThread }
-                    page = saved.coerceIn(0, pageCount - 1)
-                    status.visibility = View.GONE
-                    showPage()
-                }
-            } catch (e: SecurityException) {
-                runOnUiThread { fail("PDF protetto da password: non supportato") }
-            } catch (e: Exception) {
-                runOnUiThread { fail("Impossibile aprire il PDF: ${e.message ?: "file non valido"}") }
+            val src = File(path)
+            val size = runCatching { src.length() }.getOrDefault(-1L)
+            val head = runCatching {
+                src.inputStream().use { i -> val b = ByteArray(8); val n = i.read(b); if (n > 0) String(b, 0, n, Charsets.ISO_8859_1) else "" }
+            }.getOrDefault("")
+            if (size <= 0L) {
+                runOnUiThread { fail("File scaricato vuoto (0 byte). Riprova.\n$path") }
+                return@execute
             }
+            if (!head.startsWith("%PDF")) {
+                val shown = head.filter { it.code in 32..126 }
+                runOnUiThread { fail("Il file non è un PDF valido (inizia con \"$shown\", $size byte)") }
+                return@execute
+            }
+            var lastError = ""
+            // Primo tentativo sul file di TDLib; se non trova pagine, secondo su una copia in cache.
+            for (attempt in 0..1) {
+                try {
+                    val f = if (attempt == 0) src else {
+                        val copy = File(cacheDir, "view_$fileId.pdf")
+                        src.copyTo(copy, overwrite = true)
+                        copy
+                    }
+                    val pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
+                    val r = PdfRenderer(pfd)
+                    if (r.pageCount <= 0) {
+                        lastError = "il sistema non trova pagine ($size byte)"
+                        runCatching { r.close() }
+                        continue
+                    }
+                    renderer = r
+                    pageCount = r.pageCount
+                    val saved = getSharedPreferences("pdf_pos", Context.MODE_PRIVATE).getInt(prefKey, 0)
+                    runOnUiThread {
+                        page = saved.coerceIn(0, pageCount - 1)
+                        status.visibility = View.GONE
+                        showPage()
+                    }
+                    return@execute
+                } catch (e: SecurityException) {
+                    runOnUiThread { fail("PDF protetto da password: non supportato") }
+                    return@execute
+                } catch (e: Exception) {
+                    lastError = "${e.javaClass.simpleName}: ${e.message ?: "errore"} ($size byte)"
+                }
+            }
+            runOnUiThread { fail("Impossibile leggere il PDF: $lastError") }
         }
     }
 
@@ -309,7 +339,7 @@ class PdfViewerActivity : Activity() {
         fileListener?.let { TdClient.removeFileListener(it) }
         fileListener = null
         // Chiude il renderer sul worker (dopo gli eventuali rendering in coda).
-        worker.execute { runCatching { renderer?.close() }; renderer = null }
+        worker.execute { runCatching { renderer?.close() }; renderer = null; runCatching { File(cacheDir, "view_$fileId.pdf").delete() } }
         worker.shutdown()
         cache.clear()
         image.setImageDrawable(null)
