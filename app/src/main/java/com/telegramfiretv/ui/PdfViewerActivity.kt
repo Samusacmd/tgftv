@@ -162,7 +162,7 @@ class PdfViewerActivity : Activity() {
             opened = true
             fileListener?.let { TdClient.removeFileListener(it) }
             fileListener = null
-            openPdf(f.local.path)
+            openPdf(f.local.path, if (f.size > 0) f.size else f.expectedSize)
         } else {
             val total = if (f.size > 0) f.size else f.expectedSize
             val pct = if (total > 0) (f.local.downloadedSize * 100 / total).toInt() else -1
@@ -172,7 +172,7 @@ class PdfViewerActivity : Activity() {
 
     // ---------------------------------------------------------------- apertura
 
-    private fun openPdf(path: String) {
+    private fun openPdf(path: String, tdSize: Long) {
         status.text = "Apro il PDF…"
         worker.execute {
             val src = File(path)
@@ -189,6 +189,16 @@ class PdfViewerActivity : Activity() {
                 runOnUiThread { fail("Il file non è un PDF valido (inizia con \"$shown\", $size byte)") }
                 return@execute
             }
+            // Diagnostica: il PDF deve finire con %%EOF; se manca, il file è troncato/incompleto.
+            val tail = runCatching {
+                java.io.RandomAccessFile(src, "r").use { raf ->
+                    val n = minOf(1024L, raf.length()).toInt()
+                    raf.seek(raf.length() - n)
+                    val b = ByteArray(n); raf.readFully(b)
+                    String(b, Charsets.ISO_8859_1)
+                }
+            }.getOrDefault("")
+            val diag = "[v1.6.1-pdfium] file=$size tdlib=$tdSize eof=${tail.contains("%%EOF")}"
             var lastError = ""
             // 1) pdfium (incluso nell'app); 2) PdfRenderer di sistema, sul file e su una copia.
             for (attempt in 0..2) {
@@ -226,7 +236,7 @@ class PdfViewerActivity : Activity() {
                     lastError = "${e.javaClass.simpleName}: ${e.message ?: "errore"} ($size byte)"
                 }
             }
-            runOnUiThread { fail("Impossibile leggere il PDF: $lastError") }
+            runOnUiThread { fail("Impossibile leggere il PDF: $lastError\n$diag") }
         }
     }
 
