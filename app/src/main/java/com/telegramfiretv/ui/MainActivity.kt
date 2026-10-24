@@ -188,6 +188,7 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        StorageCleaner.flushPdfs()   // home raggiunta: cancella i PDF chiusi
         if (currentSig != null && currentSig != signature()) showFragment()
     }
 

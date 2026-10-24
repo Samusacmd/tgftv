@@ -137,6 +137,7 @@ class PdfViewerActivity : Activity() {
         fileId = intent.getIntExtra(EXTRA_FILE_ID, -1)
         prefKey = intent.getStringExtra(EXTRA_KEY).orEmpty().ifEmpty { "fid_$fileId" }
         if (fileId < 0) { finish(); return }
+        StorageCleaner.keepPdf(fileId)   // riaperto prima di tornare alla home: non cancellarlo
         runCatching { intent.getStringExtra(EXTRA_KEY)?.takeIf { it.isNotEmpty() }?.let { Settings.markWatched(this, it) } }
         startDownload()
     }
@@ -385,6 +386,8 @@ class PdfViewerActivity : Activity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        // Chiuso: il file si cancella quando si torna alla home dell'app (non subito).
+        if (fileId >= 0) StorageCleaner.markPdfForDelete(fileId)
         fileListener?.let { TdClient.removeFileListener(it) }
         fileListener = null
         // Chiude il renderer sul worker (dopo gli eventuali rendering in coda).

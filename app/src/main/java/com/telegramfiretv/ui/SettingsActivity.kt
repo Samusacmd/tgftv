@@ -208,11 +208,17 @@ class SettingsActivity : FragmentActivity() {
             MediaListActivity.clearCache()
             cacheBtn.text = "Svuoto…"
             TdClient.clearCache { obj ->
-                val mb = if (obj is TdApi.StorageStatistics) obj.size / (1024 * 1024) else -1L
-                runOnUiThread {
-                    cacheBtn.text = if (mb >= 0) "Svuota cache (occupati ${mb} MB)" else "Svuota cache  ✓"
-                    Toast.makeText(this, "Cache liberata", Toast.LENGTH_SHORT).show()
-                }
+                // TDLib restituisce le statistiche dei file che ha eliminato.
+                val tdBytes = if (obj is TdApi.StorageStatistics) obj.size else 0L
+                // Poi si svuota ciò che resta: temporanei, APK di aggiornamento, media parziali.
+                Thread {
+                    val localBytes = StorageCleaner.wipeLocal(applicationContext)
+                    val mb = (tdBytes + localBytes) / (1024 * 1024)
+                    runOnUiThread {
+                        cacheBtn.text = "Svuota cache (liberati ${mb} MB)"
+                        Toast.makeText(this, "Cache liberata: ${mb} MB", Toast.LENGTH_SHORT).show()
+                    }
+                }.start()
             }
         }
         menuButtons.add(cacheBtn)
