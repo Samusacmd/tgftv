@@ -19,6 +19,8 @@ import android.widget.ImageView
 import android.widget.TextView
 import com.telegramfiretv.tdlib.TdClient
 import org.drinkless.tdlib.TdApi
+import com.shockwave.pdfium.PdfDocument
+import com.shockwave.pdfium.PdfiumCore
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -46,8 +48,45 @@ class PdfViewerActivity : Activity() {
     /** Pagina già disegnata: bitmap grande come lo schermo + geometria della pagina sullo schermo. */
     private class Rendered(val bmp: Bitmap, val cw: Float, val ch: Float, val tx: Float, val ty: Float)
 
-    private val worker = Executors.newSingleThreadExecutor()   // PdfRenderer non è thread-safe
-    private var renderer: PdfRenderer? = null
+    /** Motore di rendering: pdfium (libreria inclusa) oppure PdfRenderer di sistema come ripiego. */
+    private interface PageSource {
+        val count: Int
+        fun pageSize(i: Int): Pair<Float, Float>
+        /** Disegna la pagina [i] nel bitmap: angolo in (x,y), dimensione w x h. */
+        fun draw(i: Int, bmp: Bitmap, x: Int, y: Int, w: Int, h: Int, m: Matrix, sc: Float)
+        fun close()
+    }
+
+    private class PdfiumSource(core: PdfiumCore, private val pfd: ParcelFileDescriptor) : PageSource {
+        private val core = core
+        private val doc: PdfDocument = core.newDocument(pfd)
+        override val count: Int = core.getPageCount(doc)
+        override fun pageSize(i: Int): Pair<Float, Float> {
+            core.openPage(doc, i)
+            return core.getPageWidthPoint(doc, i).toFloat() to core.getPageHeightPoint(doc, i).toFloat()
+        }
+        override fun draw(i: Int, bmp: Bitmap, x: Int, y: Int, w: Int, h: Int, m: Matrix, sc: Float) {
+            core.openPage(doc, i)
+            core.renderPageBitmap(doc, bmp, i, x, y, w, h, false)
+        }
+        override fun close() { runCatching { core.closeDocument(doc) }; runCatching { pfd.close() } }
+    }
+
+    private class SystemSource(private val r: PdfRenderer) : PageSource {
+        override val count: Int = r.pageCount
+        override fun pageSize(i: Int): Pair<Float, Float> {
+            val p = r.openPage(i)
+            try { return p.width.toFloat() to p.height.toFloat() } finally { p.close() }
+        }
+        override fun draw(i: Int, bmp: Bitmap, x: Int, y: Int, w: Int, h: Int, m: Matrix, sc: Float) {
+            val p = r.openPage(i)
+            try { p.render(bmp, null, m, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY) } finally { p.close() }
+        }
+        override fun close() { runCatching { r.close() } }
+    }
+
+    private val worker = Executors.newSingleThreadExecutor()   // i motori PDF non sono thread-safe
+    private var renderer: PageSource? = null
     private var pageCount = 0
     private var page = 0
     private var zoom = 1
@@ -151,23 +190,28 @@ class PdfViewerActivity : Activity() {
                 return@execute
             }
             var lastError = ""
-            // Primo tentativo sul file di TDLib; se non trova pagine, secondo su una copia in cache.
-            for (attempt in 0..1) {
+            // 1) pdfium (incluso nell'app); 2) PdfRenderer di sistema, sul file e su una copia.
+            for (attempt in 0..2) {
                 try {
-                    val f = if (attempt == 0) src else {
-                        val copy = File(cacheDir, "view_$fileId.pdf")
-                        src.copyTo(copy, overwrite = true)
-                        copy
+                    val source: PageSource = when (attempt) {
+                        0 -> PdfiumSource(PdfiumCore(applicationContext),
+                            ParcelFileDescriptor.open(src, ParcelFileDescriptor.MODE_READ_ONLY))
+                        else -> {
+                            val f = if (attempt == 1) src else {
+                                val copy = File(cacheDir, "view_$fileId.pdf")
+                                src.copyTo(copy, overwrite = true)
+                                copy
+                            }
+                            SystemSource(PdfRenderer(ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)))
+                        }
                     }
-                    val pfd = ParcelFileDescriptor.open(f, ParcelFileDescriptor.MODE_READ_ONLY)
-                    val r = PdfRenderer(pfd)
-                    if (r.pageCount <= 0) {
-                        lastError = "il sistema non trova pagine ($size byte)"
-                        runCatching { r.close() }
+                    if (source.count <= 0) {
+                        lastError = "nessuna pagina trovata ($size byte)"
+                        source.close()
                         continue
                     }
-                    renderer = r
-                    pageCount = r.pageCount
+                    renderer = source
+                    pageCount = source.count
                     val saved = getSharedPreferences("pdf_pos", Context.MODE_PRIVATE).getInt(prefKey, 0)
                     runOnUiThread {
                         page = saved.coerceIn(0, pageCount - 1)
@@ -178,7 +222,7 @@ class PdfViewerActivity : Activity() {
                 } catch (e: SecurityException) {
                     runOnUiThread { fail("PDF protetto da password: non supportato") }
                     return@execute
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     lastError = "${e.javaClass.simpleName}: ${e.message ?: "errore"} ($size byte)"
                 }
             }
@@ -196,34 +240,28 @@ class PdfViewerActivity : Activity() {
     /** Disegna la porzione visibile della pagina [idx]. Va chiamata SOLO dal worker. */
     private fun renderNow(idx: Int, z: Int, wantTx: Float, wantTy: Float): Rendered? {
         val r = renderer ?: return null
-        val p = r.openPage(idx)
-        try {
-            val pw = p.width.toFloat()
-            val ph = p.height.toFloat()
-            val base = minOf(screenW / pw, screenH / ph)
-            val sc = base * z
-            val cw = pw * sc
-            val ch = ph * sc
-            val tx = when {
-                cw <= screenW -> (screenW - cw) / 2f
-                wantTx.isNaN() -> (screenW - cw) / 2f
-                else -> wantTx.coerceIn(screenW - cw, 0f)
-            }
-            val ty = when {
-                ch <= screenH -> (screenH - ch) / 2f
-                wantTy.isNaN() -> 0f
-                else -> wantTy.coerceIn(screenH - ch, 0f)
-            }
-            val bmp = Bitmap.createBitmap(screenW, screenH, Bitmap.Config.ARGB_8888)
-            val canvas = Canvas(bmp)
-            canvas.drawColor(Color.BLACK)
-            canvas.drawRect(tx, ty, tx + cw, ty + ch, Paint().apply { color = Color.WHITE })
-            val m = Matrix().apply { postScale(sc, sc); postTranslate(tx, ty) }
-            p.render(bmp, null, m, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-            return Rendered(bmp, cw, ch, tx, ty)
-        } finally {
-            p.close()
+        val (pw, ph) = r.pageSize(idx)
+        val base = minOf(screenW / pw, screenH / ph)
+        val sc = base * z
+        val cw = pw * sc
+        val ch = ph * sc
+        val tx = when {
+            cw <= screenW -> (screenW - cw) / 2f
+            wantTx.isNaN() -> (screenW - cw) / 2f
+            else -> wantTx.coerceIn(screenW - cw, 0f)
         }
+        val ty = when {
+            ch <= screenH -> (screenH - ch) / 2f
+            wantTy.isNaN() -> 0f
+            else -> wantTy.coerceIn(screenH - ch, 0f)
+        }
+        val bmp = Bitmap.createBitmap(screenW, screenH, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bmp)
+        canvas.drawColor(Color.BLACK)
+        canvas.drawRect(tx, ty, tx + cw, ty + ch, Paint().apply { color = Color.WHITE })
+        val m = Matrix().apply { postScale(sc, sc); postTranslate(tx, ty) }
+        r.draw(idx, bmp, tx.toInt(), ty.toInt(), cw.toInt(), ch.toInt(), m, sc)
+        return Rendered(bmp, cw, ch, tx, ty)
     }
 
     private fun showPage() {
