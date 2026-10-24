@@ -42,6 +42,12 @@
             android:theme="@style/Theme.TelegramFireTV" />
 
         <activity
+            android:name=".ui.PdfViewerActivity"
+            android:exported="false"
+            android:configChanges="keyboard|keyboardHidden|orientation|screenSize"
+            android:theme="@style/Theme.TelegramFireTV" />
+
+        <activity
             android:name=".ui.MediaListActivity"
             android:exported="false" />
 
