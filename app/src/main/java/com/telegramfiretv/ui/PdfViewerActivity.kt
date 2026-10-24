@@ -192,13 +192,13 @@ class PdfViewerActivity : Activity() {
             // Diagnostica: il PDF deve finire con %%EOF; se manca, il file è troncato/incompleto.
             val tail = runCatching {
                 java.io.RandomAccessFile(src, "r").use { raf ->
-                    val n = minOf(1024L, raf.length()).toInt()
+                    val n = minOf(8192L, raf.length()).toInt()
                     raf.seek(raf.length() - n)
                     val b = ByteArray(n); raf.readFully(b)
                     String(b, Charsets.ISO_8859_1)
                 }
             }.getOrDefault("")
-            val diag = "[v1.6.1-pdfium] file=$size tdlib=$tdSize eof=${tail.contains("%%EOF")}"
+            val diag = "[v1.6.1-pdfium] file=$size tdlib=$tdSize eof=${tail.contains("%%EOF")} ver=${head.take(8).filter { it.code in 32..126 }} enc=${tail.contains("/Encrypt")} xrefstm=${tail.contains("/XRef")}"
             var lastError = ""
             // 1) pdfium (incluso nell'app); 2) PdfRenderer di sistema, sul file e su una copia.
             for (attempt in 0..2) {
