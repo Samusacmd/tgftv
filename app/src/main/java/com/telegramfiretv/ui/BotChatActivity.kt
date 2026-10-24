@@ -444,7 +444,7 @@ class BotChatActivity : FragmentActivity() {
                             onClick = { playMediaAt(mediaRefs.toList(), idx) },
                             onLongClick = { setReplyTarget(m) })
                     } else {
-                        val icon = if (media.second == 2) "🖼" else "▶"
+                        val icon = when (media.second) { 2 -> "🖼"; 3 -> "📄"; else -> "▶" }
                         addMessageBubble("$icon  ${media.third}", mine, true,
                             onClick = { playMediaAt(mediaRefs.toList(), idx) },
                             onLongClick = { setReplyTarget(m) })
@@ -572,7 +572,19 @@ class BotChatActivity : FragmentActivity() {
         messagesBox.addView(row)
     }
 
-    private fun playMediaAt(refs: List<Triple<Int, Int, String>>, idx: Int) {
+    private fun playMediaAt(allRefs: List<Triple<Int, Int, String>>, idx0: Int) {
+        val target = allRefs.getOrNull(idx0) ?: return
+        if (target.second == 3) {
+            startActivity(
+                Intent(this, PdfViewerActivity::class.java)
+                    .putExtra(PdfViewerActivity.EXTRA_FILE_ID, target.first)
+                    .putExtra(PdfViewerActivity.EXTRA_TITLE, target.third)
+            )
+            return
+        }
+        // I PDF non fanno parte della playlist del player.
+        val refs = allRefs.filter { it.second != 3 }
+        val idx = refs.indexOf(target).coerceAtLeast(0)
         startActivity(
             Intent(this, PlayerActivity::class.java)
                 .putExtra(PlayerActivity.EXTRA_FILE_IDS, refs.map { it.first }.toIntArray())
@@ -748,6 +760,8 @@ class BotChatActivity : FragmentActivity() {
                 when {
                     mime.startsWith("video/") || ext in VIDEO_EXT -> Triple(c.document.document.id, 0, c.document.fileName.ifEmpty { "Video" })
                     mime.startsWith("audio/") || ext in AUDIO_EXT -> Triple(c.document.document.id, 1, c.document.fileName.ifEmpty { "Audio" })
+                    // PDF: tipo 3 = si apre nel visualizzatore PDF, non nel player.
+                    mime == "application/pdf" || ext == "pdf" -> Triple(c.document.document.id, 3, c.document.fileName.ifEmpty { "PDF" })
                     else -> null
                 }
             }
