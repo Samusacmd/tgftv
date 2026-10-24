@@ -17,7 +17,7 @@ android {
         //   MINOR (x.Y.0) per nuove funzionalità
         //   MAJOR (X.0.0) per cambi radicali/incompatibili
         // NOTA: senza incremento, il tasto Update dirà "già aggiornato".
-        val semVer = "1.6.0"
+        val semVer = "1.6.1"
         // Il versionCode deve solo crescere sempre (requisito Android per gli update):
         // resta agganciato al numero progressivo della build CI, nessuna gestione manuale.
         versionCode = (System.getenv("GITHUB_RUN_NUMBER") ?: "1").toInt()
@@ -76,4 +76,5 @@ dependencies {
     // dall'utente (AppDns) mantenendo TLS e verifica certificati corretti.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.airbnb.android:lottie:6.4.0")
+	implementation("com.github.barteksc:pdfium-android:1.9.0")
 }
