@@ -76,5 +76,8 @@ dependencies {
     // dall'utente (AppDns) mantenendo TLS e verifica certificati corretti.
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.airbnb.android:lottie:6.4.0")
-	implementation("com.github.barteksc:pdfium-android:1.9.0")
+    // Motore PDF (pdfium): escludo le vecchie librerie support, duplicate di androidx.
+    implementation("com.github.barteksc:pdfium-android:1.9.0") {
+        exclude(group = "com.android.support")
+    }
 }
