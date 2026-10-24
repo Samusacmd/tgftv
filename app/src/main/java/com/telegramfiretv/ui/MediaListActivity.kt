@@ -479,10 +479,25 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         )
                         return@setOnItemViewClickedListener
                     }
-                    val ids = collected.map { it.fileId }.toIntArray()
-                    val labs = collected.map { it.title }.toTypedArray()
-                    val kinds = collected.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
-                    val idx = collected.indexOf(item).coerceAtLeast(0)
+                    if (item.type == "PDF") {
+                        startActivity(
+                            Intent(requireContext(), PdfViewerActivity::class.java)
+                                .putExtra(PdfViewerActivity.EXTRA_FILE_ID, item.fileId)
+                                .putExtra(PdfViewerActivity.EXTRA_TITLE, item.title)
+                                .putExtra(PdfViewerActivity.EXTRA_KEY, item.watchKey)
+                        )
+                        return@setOnItemViewClickedListener
+                    }
+                    // Playlist in ordine CRONOLOGICO (dal più vecchio al più nuovo): "successivo"
+                    // = il file pubblicato dopo. La lista a schermo è spesso dal più nuovo al
+                    // più vecchio, quindi la si inverte; i "Post" (senza file) non sono riproducibili.
+                    val playable = collected.filter { it.type != "Post" && it.type != "PDF" }
+                    val descending = playable.size > 1 && playable.first().messageId > playable.last().messageId
+                    val playlist = if (descending) playable.reversed() else playable
+                    val ids = playlist.map { it.fileId }.toIntArray()
+                    val labs = playlist.map { it.title }.toTypedArray()
+                    val kinds = playlist.map { when (it.type) { "Audio" -> 1; "Foto" -> 2; else -> 0 } }.toIntArray()
+                    val idx = playlist.indexOf(item).coerceAtLeast(0)
                     startActivity(
                         Intent(requireContext(), PlayerActivity::class.java)
                             .putExtra(PlayerActivity.EXTRA_FILE_IDS, ids)
@@ -674,7 +689,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         val th = mediaThumbOf(m)
                         collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
                     } else {
-                        extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
+                        extractMedia(m)?.let { if (showAll || (it.type != "Foto" && it.type != "PDF")) collected.add(it.copy(messageId = m.id)) }
                     }
                     forwardCursor = m.id
                 }
@@ -726,7 +741,7 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         val th = mediaThumbOf(m)
                         collected.add(MediaEntry(0, label, "Post", 0, th?.first, th?.second, "", m.id))
                     } else {
-                        extractMedia(m)?.let { if (showAll || it.type != "Foto") collected.add(it) }
+                        extractMedia(m)?.let { if (showAll || (it.type != "Foto" && it.type != "PDF")) collected.add(it.copy(messageId = m.id)) }
                     }
                     oldest = m.id
                 }
@@ -794,6 +809,8 @@ class MediaGridFragment : VerticalGridSupportFragment() {
                         MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Video" }, "Video", 0, doc.minithumbnail?.data, doc.thumbnail?.file, watchKeyOf(doc.document))
                     mime.startsWith("audio/") || ext in AUDIO_EXT ->
                         MediaEntry(doc.document.id, doc.fileName.ifEmpty { "Audio" }, "Audio", 0, doc.minithumbnail?.data, doc.thumbnail?.file, watchKeyOf(doc.document))
+                    mime == "application/pdf" || ext == "pdf" ->
+                        MediaEntry(doc.document.id, doc.fileName.ifEmpty { "PDF" }, "PDF", 0, doc.minithumbnail?.data, doc.thumbnail?.file, watchKeyOf(doc.document))
                     else -> null
                 }
             }
