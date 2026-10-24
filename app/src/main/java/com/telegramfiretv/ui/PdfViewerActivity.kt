@@ -199,7 +199,8 @@ class PdfViewerActivity : Activity() {
                 }
             }.getOrDefault("")
             val diag = "[v1.6.1-pdfium] file=$size tdlib=$tdSize eof=${tail.contains("%%EOF")} ver=${head.take(8).filter { it.code in 32..126 }} enc=${tail.contains("/Encrypt")} xrefstm=${tail.contains("/XRef")}"
-            var lastError = ""
+            val errors = ArrayList<String>()
+            val names = arrayOf("pdfium", "sistema", "sistema-copia")
             // 1) pdfium (incluso nell'app); 2) PdfRenderer di sistema, sul file e su una copia.
             for (attempt in 0..2) {
                 try {
@@ -216,7 +217,7 @@ class PdfViewerActivity : Activity() {
                         }
                     }
                     if (source.count <= 0) {
-                        lastError = "nessuna pagina trovata ($size byte)"
+                        errors.add("${names[attempt]}: 0 pagine")
                         source.close()
                         continue
                     }
@@ -233,10 +234,10 @@ class PdfViewerActivity : Activity() {
                     runOnUiThread { fail("PDF protetto da password: non supportato") }
                     return@execute
                 } catch (e: Throwable) {
-                    lastError = "${e.javaClass.simpleName}: ${e.message ?: "errore"} ($size byte)"
+                    errors.add("${names[attempt]}: ${e.javaClass.simpleName} ${e.message ?: ""}")
                 }
             }
-            runOnUiThread { fail("Impossibile leggere il PDF: $lastError\n$diag") }
+            runOnUiThread { fail("Impossibile leggere il PDF\n${errors.joinToString("\n")}\n$diag") }
         }
     }
 
