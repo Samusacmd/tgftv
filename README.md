@@ -1,7 +1,7 @@
 # FiregramTV
 
 Client Telegram nativo per **Fire TV** e **Android TV**, pensato per il telecomando.
-Compilato interamente nel cloud con GitHub Actions (TDLib incluso), senza bisogno di un PC potente.
+Compilato interamente nel cloud con GitHub Actions (TDLib incluso).
 
 > App realizzata da zero con Claude, con un pizzico di follia ed un mix di odio che non fa mai male.
 
